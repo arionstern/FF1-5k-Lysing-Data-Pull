@@ -45,7 +45,29 @@ SOURCE_SHEET_NAME = "SOPGEM-45-2"
 # Which fill lines are valid for this pull (step 4.5.1)
 VALID_FILL_LINES = ["FF1", "FF2"]
 
-SOURCE_COLUMN_SEAL_STRENGTH = "Sample Seal Strength Column (lbf)"
+# NOTE: the real sheet's column header has a typo — "Sample Seal
+# Stength (lbf)" (missing "r", no "Column") — so it's referenced by
+# letter below rather than matched by text.
+SOURCE_COLUMN_SEAL_STRENGTH = "Sample Seal Strength Column (lbf)"  # display name only, don't match on this
+
+# Real cell addresses confirmed against SOPGEM-45-2 (see
+# tests/sap/test_locate_fill_line_and_data.py for how these were found)
+SOURCE_PRODUCT_NAME_CELL = "C3"       # e.g. "5K LYSING"
+SOURCE_WO_NUMBER_CELL = "G3"
+SOURCE_FILL_LINE_CELL = "G6"          # header-level fill line, e.g. "FF1"
+
+# Tensile Tester Use Log table layout
+SOURCE_TABLE_HEADER_ROW = 11
+SOURCE_TABLE_DATA_START_ROW = 12
+SOURCE_TABLE_COLUMNS = {
+    "fill_line": "B",
+    "date": "C",
+    "product_name": "D",
+    "lot_number": "E",
+    "time": "F",
+    "seal_strength": "G",
+    "operator_initials": "H",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +79,11 @@ _LYSING_WORKBOOK_PATH_TEST = r"\\obsvr07\Operations\Manufacturing Engineering\09
 
 LYSING_WORKBOOK_PATH = _LYSING_WORKBOOK_PATH_TEST if USE_TEST_PATHS else _LYSING_WORKBOOK_PATH_REAL
 
-# Columns where new lot/WO numbers get written (step 4.1)
+# Real sheet name confirmed (was previously unnamed/assumed)
+DEST_WO_SHEET_NAME = "WO Data"
+
+# Columns where new lot/WO numbers get written (step 4.1) — confirmed
+# against real headers "Fill Lot #" (E) and "Fill WO #" (F)
 COL_LOT_NUMBER = "E"
 COL_WO_NUMBER = "F"
 
@@ -65,8 +91,35 @@ COL_WO_NUMBER = "F"
 DEST_BOXPLOT_SHEET = "Tensile Data (Boxplot)"
 DEST_CONTROL_CHART_SHEET = "Tensile Data (Control Chart)"
 
-# Fields to fill on the FF1 Lysing sheet (step 4.6)
+# Fields to fill on the WO Data sheet (step 4.6) — confirmed real
+# header text. Product Name (col D) also exists but wasn't in the
+# original instructions; add here if it needs to be filled too.
 FF1_SHEET_FIELDS = ["Fill Date", "Filler", "Part Number"]
+
+# Boxplot sheet layout: column A holds row labels ("Fill Lot #",
+# "Fill WO #", "Fill Date" in rows 1-3); each lot gets its own column
+# to the right, bag values going down starting row 4. New lot's data
+# goes in the next empty column (first column with a blank row-1 cell).
+DEST_BOXPLOT_HEADER_ROWS = {"lot": 1, "wo": 2, "fill_date": 3}
+DEST_BOXPLOT_DATA_START_ROW = 4
+
+# Control Chart sheet layout: header row 1 = "Lot No.", "WO No.",
+# "Fill Date", "Bag 1", "Bag 2", ... ; each lot gets its own ROW,
+# appended at the bottom (next empty row). Confirms this is a genuine
+# transpose of the Boxplot sheet's layout (columns become rows).
+DEST_CONTROL_CHART_HEADER_ROW = 1
+DEST_CONTROL_CHART_DATA_START_COL = "D"  # Bag 1 starts here (A-C are Lot/WO/Date)
+
+# NOTE: on this destination sheet, lots with fewer bag readings than
+# the widest existing lot just get BLANK cells for the unused columns
+# — not "N/A", not "*". The asterisk-padding rule only applies later,
+# when pasting into Minitab itself (step 4.7.1), not here.
+
+# KNOWN GAP (found while inspecting real data, not yet resolved):
+# lots 260610C and 260610D exist in WO Data (as of this writing) but
+# are missing from both Boxplot and Control Chart sheets — a real
+# backlog case worth testing the eventual "catch up missed lots"
+# logic against.
 
 # Duplicate-lot handling (Notes): if 2 lots land on the same day, the
 # second one gets a "_1" suffix
@@ -82,8 +135,15 @@ _MINITAB_PROJECT_PATH_TEST = r"\\obsvr07\Operations\Manufacturing Engineering\09
 
 MINITAB_PROJECT_PATH = _MINITAB_PROJECT_PATH_TEST if USE_TEST_PATHS else _MINITAB_PROJECT_PATH_REAL
 
-# Column range used for the Xbar subgroup chart (step 5.1.1)
-MINITAB_BAG_COLUMN_RANGE = ("bag1", "bag38")
+# NOTE: bag count is NOT fixed per lot — confirmed against real data,
+# one lot had 30 real readings, not 38. "bag1-bag38" in the original
+# instructions was just whichever lot happened to be widest at the
+# time, not a constant. minitab_utils.py needs to determine the actual
+# column count per run (read until real data ends, per
+# SOURCE_TABLE_DATA_START_ROW logic) and pad every column in the
+# destination sheet to match whatever the longest one currently is —
+# this is exactly why MINITAB_PAD_CHARACTER exists.
+MINITAB_MAX_BAG_COLUMNS_OBSERVED = 38  # highest seen so far, not a hard limit
 
 # Chart titles/axis labels — kept together so both charts stay in sync
 # if wording ever changes
