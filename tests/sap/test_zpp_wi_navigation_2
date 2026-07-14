@@ -1,0 +1,158 @@
+"""
+tests/sap/test_zpp_wi_navigation.py
+
+Exploratory script — not an automated test suite (no assertions).
+Navigates to ZPP_WI, filters by config.MATERIAL_NUMBER with "no
+restriction" checked, and reads back the lot grid as-is. Goal here is
+just to see the raw data shape (field names, row/column layout, how
+GR quantity shows up) before writing any real parsing logic in
+sap_utils.py.
+
+Requires: SAP GUI already open and logged in manually.
+"""
+
+import sys
+import win32com.client
+
+sys.path.append("../..")
+import config
+
+
+def get_session():
+    sap_gui_auto = win32com.client.GetObject("SAPGUI")
+    application = sap_gui_auto.GetScriptingEngine
+    connection = application.Children(0)
+    session = connection.Children(0)
+    return session
+
+
+def main():
+    session = get_session()
+    print(f"Session: {session.Info.SystemName}, user {session.Info.User}")
+
+    # Step 3: enter transaction ZPP_WI
+    session.findById("wnd[0]").maximize()
+    session.findById("wnd[0]/tbar[0]/okcd").text = "ZPP_WI"
+    session.findById("wnd[0]").sendVKey(0)  # Enter
+    print(f"Navigated to transaction: {session.Info.Transaction}")
+
+    # Real field IDs captured via SAP GUI Script Recording and Playback
+    # (see sap/zpp_wi_field_ids_reference.vbs in the repo for the raw
+    # recording this was extracted from).
+    #
+    # NOTE on fragility: the material field below is an index-based
+    # generic selection field (row 24 of a selection table), not a
+    # named field. This worked for the recorded session, but the index
+    # could shift if the popup layout/scroll position differs — flag
+    # for a second recording to confirm this is stable across runs.
+    try:
+        # Step 3.1: expand order options (F4 on order field opens the
+        # multi-value selection popup), enter Material, check "no restriction"
+        order_field_id = "wnd[0]/usr/ctxtZZWOSCAN-AUFNR"
+        material_field_id = (
+            "wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001/"
+            "ssubSUBSCR_PRESEL:SAPLSDH4:0220/sub:SAPLSDH4:0220/"
+            "ctxtG_SELFLD_TAB-LOW[0,24]"
+        )
+        no_restriction_checkbox_id = (
+            "wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001/"
+            "ssubSUBSCR_PRESEL:SAPLSDH4:0220/chkG_SELPOP_STATE-BUTTON"
+        )
+        confirm_button_id = "wnd[1]/tbar[0]/btn[0]"
+
+        session.findById(order_field_id).setFocus()
+        session.findById(order_field_id).caretPosition = 0
+        session.findById("wnd[0]").sendVKey(4)  # F4, opens popup
+
+        session.findById(material_field_id).text = config.MATERIAL_NUMBER
+        if config.NO_RESTRICTION:
+            session.findById(no_restriction_checkbox_id).selected = True
+
+        # Step 3.2: click enter (confirm button in the popup)
+        session.findById(confirm_button_id).press()
+        print(f"Filtered on material {config.MATERIAL_NUMBER}")
+
+    except Exception as e:
+        print("FAILED to find/fill the expected fields on the ZPP_WI")
+        print("selection popup. See sap/zpp_wi_field_ids_reference.vbs")
+        print("for the original recording these IDs were pulled from.")
+        print(f"Error: {e}")
+        return
+
+    # Step 3.3 / 4: scroll the popup's result list, select the specific
+    # lot, and confirm — lands on the order detail screen with Routing
+    # as the default tab (confirmed: no separate "go to Routing" click
+    # needed, per the user).
+    #
+    # NOTE: this part of the recording used a label-based row selection
+    # (lbl[1,22]) tied to whatever row happened to be on screen during
+    # the recording. Same fragility concern as the material field above
+    # — for a real weekly run this needs to become "find the row whose
+    # lot number matches the new lot we're looking for," not a fixed
+    # position. Keeping as recorded for now since this script's only
+    # goal right now is confirming the mechanism works end-to-end.
+    try:
+        popup_scroll_id = "wnd[1]/usr"
+        lot_row_label_id = "wnd[1]/usr/lbl[1,22]"  # fragile, see note above
+        order_confirm_button_id = "wnd[0]/tbar[0]/btn[0]"
+
+        session.findById(popup_scroll_id).verticalScrollbar.position = 596
+        session.findById(lot_row_label_id).setFocus()
+        session.findById(lot_row_label_id).caretPosition = 5
+        session.findById("wnd[1]").sendVKey(2)  # selects the row
+
+        session.findById(order_confirm_button_id).press()  # Enter
+        print(f"Selected lot, landed on: {session.Info.Transaction}")
+
+    except Exception as e:
+        print("FAILED to select the lot from the popup list.")
+        print(f"Error: {e}")
+        return
+
+    # Step 4.3.1: on the Routing tab, select the instruction row
+    # (0030/000006 | In-Process GEM Logs) and open it.
+    #
+    # NOTE: same fragility issue, more severe here — "12"/"C 6" are the
+    # literal item/column keys from THIS recording only. This needs to
+    # become a real lookup (search the tree for the row whose text
+    # matches config.ROUTING_STEP_ID / config.ROUTING_DESCRIPTION)
+    # before sap_utils.py can rely on it. Do not ship this as-is.
+    try:
+        routing_grid_id = (
+            "wnd[0]/usr/tabsTABS_0200/tabpTAB01/"
+            "ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/"
+            "shell/shellcont[1]/shell[1]"
+        )
+        item_key = "         12"    # placeholder — needs dynamic lookup
+        column_key = "C          6"  # placeholder — needs dynamic lookup
+
+        routing_grid = session.findById(routing_grid_id)
+        routing_grid.selectItem(item_key, column_key)
+        routing_grid.ensureVisibleHorizontalItem(item_key, column_key)
+        routing_grid.topNode = "          1"
+        routing_grid.pressButton(item_key, column_key)
+        print("Opened routing instruction row.")
+
+        # Step 4.2: "X out of SubDocument selection 2 Entries if it
+        # pops up" — this closes that popup if present.
+        try:
+            session.findById("wnd[1]/tbar[0]/btn[0]").press()
+            print("Closed SubDocument selection popup.")
+        except Exception:
+            print("No SubDocument selection popup appeared (fine, per "
+                  "step 4.2 this only happens sometimes).")
+
+    except Exception as e:
+        print("FAILED to select/open the routing instruction row.")
+        print(f"Error: {e}")
+        return
+
+    print("\nReached routing instructions. Next: confirm what screen")
+    print("actually opened here (the GEM log spreadsheet itself, per")
+    print("step 4.5?), and figure out the dynamic lookup for the")
+    print("item_key/column_key values flagged above.")
+    return
+
+
+if __name__ == "__main__":
+    main()
