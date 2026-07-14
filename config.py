@@ -35,6 +35,20 @@ ROUTING_DESCRIPTION = "In-Process GEM Logs ( 0030 - 0060 )"
 # search Doc List instead (step 4.4)
 DOC_LIST_SEARCH_TEXT = "gem log fill lot"
 
+# MAJOR DISCOVERY: the GEM log document number is fully DERIVABLE from
+# the WO number alone — confirmed against 3 real lots:
+#   "0000" + WO_NUMBER + "000006" + "0030" + "-01"
+# where "000006"/"0030" match ROUTING_STEP_ID above and are constant
+# for this document type. SAP writes the opened file to a predictable
+# local path: %LOCALAPPDATA%\SAP\SAP GUI\tmp\{doc_number}.xlsx
+# This means the document can be reached directly via the Documents
+# List tab (tabpTAB02, a fixed ID) searching its real DOKNR column —
+# completely bypassing the fragile custom routing tree (tabpTAB01),
+# which uses per-lot, even per-click-unstable row indices and doesn't
+# reliably support scripted interaction at all.
+DOC_NUMBER_SUFFIX = "0000060030-01"  # "000006" + "0030" + "-01"
+SAP_TEMP_FOLDER_TEMPLATE = r"%LOCALAPPDATA%\SAP\SAP GUI\tmp"
+
 
 # ---------------------------------------------------------------------------
 # Excel — source (GEM log workbook)

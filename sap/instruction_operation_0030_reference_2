@@ -1,0 +1,23 @@
+If Not IsObject(application) Then
+   Set SapGuiAuto  = GetObject("SAPGUI")
+   Set application = SapGuiAuto.GetScriptingEngine
+End If
+If Not IsObject(connection) Then
+   Set connection = application.Children(0)
+End If
+If Not IsObject(session) Then
+   Set session    = connection.Children(0)
+End If
+If IsObject(WScript) Then
+   WScript.ConnectObject session,     "on"
+   WScript.ConnectObject application, "on"
+End If
+session.findById("wnd[0]").maximize
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").selectItem "         12","C          6"
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").ensureVisibleHorizontalItem "         12","C          6"
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").pressButton "         12","C          6"
+session.findById("wnd[1]/tbar[0]/btn[0]").press
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01").select
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").selectItem "         31","C          6"
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").ensureVisibleHorizontalItem "         31","C          6"
+session.findById("wnd[0]/usr/tabsTABS_0200/tabpTAB01/ssubSUBSCREEN:SAPLZPPDA:0100/cntlZPPDA_CONT/shellcont/shell/shellcont[1]/shell[1]").pressButton "         31","C          6"
