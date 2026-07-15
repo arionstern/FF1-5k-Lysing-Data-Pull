@@ -75,18 +75,44 @@ def get_worksheet(project, sheet_name):
 # ---------------------------------------------------------------------------
 
 def format_boxplot_column_name(fill_date, is_duplicate=False):
-    """Format a fill date as a Boxplot column name, matching the
-    existing convention (with '_1' suffix for same-day duplicates,
-    per the original written instructions).
-
-    NOTE: deliberately not using strftime's leading-zero-strip flags
-    (%-m/%-d are Linux-only, %#m/%#d are Windows-only) — building the
-    string manually instead so this works regardless of platform.
-    """
+    """Format a fill date as a Boxplot column name (base name only,
+    no dedup check — see determine_unique_boxplot_column_name for the
+    real duplicate-date logic used by write_new_lot_to_minitab)."""
     formatted = f"{fill_date.month}/{fill_date.day}/{fill_date.year}"
     if is_duplicate:
         formatted += "_1"
     return formatted
+
+
+def get_existing_boxplot_column_names(worksheet):
+    """Read every existing column name on the Boxplot worksheet."""
+    return [
+        worksheet.Columns.Item(i).Name
+        for i in range(1, worksheet.Columns.Count + 1)
+    ]
+
+
+def determine_unique_boxplot_column_name(worksheet, fill_date):
+    """Determine the correct column name for a new lot, automatically
+    detecting same-day duplicates by checking existing column names —
+    matches the original written instructions' '_1' suffix rule, but
+    derived from real worksheet state instead of a caller-provided flag.
+
+    First lot on a date: '7/1/2026'. Second: '7/1/2026_1'. Third (if
+    it ever happens): '7/1/2026_2', etc. — not capped at one duplicate,
+    since the original instructions only ever showed 2/day as an
+    example, not a hard limit.
+    """
+    base_name = f"{fill_date.month}/{fill_date.day}/{fill_date.year}"
+    existing_names = get_existing_boxplot_column_names(worksheet)
+
+    if base_name not in existing_names:
+        return base_name
+
+    suffix = 1
+    while f"{base_name}_{suffix}" in existing_names:
+        suffix += 1
+    return f"{base_name}_{suffix}"
 
 
 def write_boxplot_column(worksheet, column_name, seal_values, max_rows=38):
@@ -173,12 +199,13 @@ def write_control_chart_row(worksheet, lot_number, wo_number, fill_date,
 # ---------------------------------------------------------------------------
 
 def write_new_lot_to_minitab(project, lot_number, wo_number, fill_date,
-                              seal_values, is_duplicate_date=False):
-    """Writes one lot's data to both Minitab worksheets."""
+                              seal_values):
+    """Writes one lot's data to both Minitab worksheets. Same-day
+    duplicate detection is automatic — no flag needed from the caller."""
     boxplot_sheet = get_worksheet(project, config.DEST_BOXPLOT_SHEET)
     control_chart_sheet = get_worksheet(project, config.DEST_CONTROL_CHART_SHEET)
 
-    column_name = format_boxplot_column_name(fill_date, is_duplicate_date)
+    column_name = determine_unique_boxplot_column_name(boxplot_sheet, fill_date)
     boxplot_col = write_boxplot_column(boxplot_sheet, column_name, seal_values)
 
     control_chart_row = write_control_chart_row(
