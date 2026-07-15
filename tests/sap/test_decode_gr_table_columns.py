@@ -55,38 +55,122 @@ def main():
     session.findById(material_field_id).text = config.MATERIAL_NUMBER
     session.findById("wnd[1]/tbar[0]/btn[0]").press()
 
-    print("Reading all labels in wnd[1]/usr...\n")
+    print("Reading full table by scrolling through it...\n")
 
     usr_area = session.findById("wnd[1]/usr")
-    children = usr_area.Children
+    scrollbar = usr_area.verticalScrollbar
+    max_position = scrollbar.Maximum
+    print(f"Scrollbar maximum: {max_position}")
 
-    # Collect all (col, row, text) for GuiLabel elements, parsed from
-    # the field ID itself (lbl[col,row])
-    rows = {}
-    for i in range(children.Count):
-        child = children.ElementAt(i)
-        if child.Type not in ("GuiLabel", "GuiCheckBox"):
-            continue
-        field_id = child.Id
-        # Extract "col,row" from something like ".../lbl[37,24]"
+    import re
+    lysing_lot_pattern = re.compile(r"^\d{6}[A-Z]$")
+
+    all_rows = {}
+    seen_any_real_lot = False
+    consecutive_non_matches = 0
+    position = 0
+    page_size = 20
+    stopped_early = False
+
+    while True:
+        scrollbar.Position = position
+        time.sleep(0.3)
+
+        children = usr_area.Children
+        page_rows = {}
+        for i in range(children.Count):
+            child = children.ElementAt(i)
+            if child.Type not in ("GuiLabel", "GuiCheckBox"):
+                continue
+            field_id = child.Id
+            try:
+                bracket_content = field_id.split("[")[-1].rstrip("]")
+                col_str, row_str = bracket_content.split(",")
+                col, row = int(col_str), int(row_str)
+            except Exception:
+                continue
+            try:
+                text = child.Text if child.Type == "GuiLabel" else child.Selected
+            except Exception:
+                text = "?"
+            page_rows.setdefault(row, {})[col] = text
+
+        for row, cols in sorted(page_rows.items()):
+            order = cols.get(10, "").strip()
+            if not order or order == "Order":
+                continue
+            batch = cols.get(1, "").strip()
+
+            if lysing_lot_pattern.match(batch):
+                seen_any_real_lot = True
+                consecutive_non_matches = 0
+            elif seen_any_real_lot:
+                # Once we've seen real lots, count how many non-matching
+                # rows follow in a row — a real transition into the
+                # "odd" section, not just an isolated blank/junk row.
+                consecutive_non_matches += 1
+                if consecutive_non_matches >= 5:
+                    print(f"Stopping early: hit {consecutive_non_matches} "
+                          f"consecutive non-Lysing entries after row "
+                          f"{row} — crossed into the unrelated section.")
+                    stopped_early = True
+                    break
+
+            all_rows[order] = {
+                "batch": batch,
+                "order": order,
+                "item_qty": cols.get(19, "").strip(),
+                "gr_qty": cols.get(37, "").strip(),
+            }
+
+        if stopped_early:
+            break
+        if position >= max_position:
+            break
+        position = min(position + page_size, max_position)
+
+    print(f"\nTotal unique orders found: {len(all_rows)}\n")
+
+    # Format alone can't distinguish real recent Lysing lots from old
+    # unrelated batches — confirmed both use the same YYMMDD+letter
+    # naming convention across a full decade of history. Filtering by
+    # the DATE embedded in the batch name instead: only accept batches
+    # from the last N days, and not already known.
+    from datetime import datetime, timedelta
+    RECENCY_WINDOW_DAYS = 90
+    cutoff_date = datetime.now() - timedelta(days=RECENCY_WINDOW_DAYS)
+
+    def parse_batch_date(batch):
+        """Parse the YYMMDD prefix from a batch name like '260610C'."""
+        if not lysing_lot_pattern.match(batch):
+            return None
         try:
-            bracket_content = field_id.split("[")[-1].rstrip("]")
-            col_str, row_str = bracket_content.split(",")
-            col, row = int(col_str), int(row_str)
-        except Exception:
+            yy, mm, dd = int(batch[0:2]), int(batch[2:4]), int(batch[4:6])
+            return datetime(2000 + yy, mm, dd)
+        except ValueError:
+            return None
+
+    new_lots = {}
+    for order, data in all_rows.items():
+        batch = data["batch"]
+        batch_date = parse_batch_date(batch)
+        if batch_date is None or batch_date < cutoff_date:
             continue
+        if batch in config.KNOWN_LOTS:  # TODO: read from real WO Data
+            continue
+        new_lots[order] = data
 
+    print(f"Filtered to {len(new_lots)} recent, unknown Lysing lot(s) "
+          f"(last {RECENCY_WINDOW_DAYS} days):\n")
+    for order, data in sorted(new_lots.items(), key=lambda x: x[1]["batch"]):
+        gr_qty_str = data["gr_qty"].replace(",", "")
         try:
-            text = child.Text if child.Type == "GuiLabel" else child.Selected
-        except Exception:
-            text = "?"
-
-        rows.setdefault(row, {})[col] = text
-
-    for row in sorted(rows.keys()):
-        cols = rows[row]
-        col_items = sorted(cols.items())
-        print(f"Row {row}: {col_items}")
+            gr_qty_val = float(gr_qty_str)
+        except ValueError:
+            gr_qty_val = 0
+        ready = "READY" if gr_qty_val != 0 else "NOT READY (GR qty = 0)"
+        print(f"  Batch={data['batch']!r} Order={order!r} "
+              f"GRQty={data['gr_qty']!r} [{ready}]")
 
 
 if __name__ == "__main__":

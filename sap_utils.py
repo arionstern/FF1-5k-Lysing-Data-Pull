@@ -301,3 +301,141 @@ def get_gem_log_sheet_for_wo(wo_number):
         f"No candidate document for WO {wo_number} had real content "
         f"— all {len(candidates)} candidate(s) were blank templates."
     )
+
+
+# ---------------------------------------------------------------------------
+# Finding new lots (GR Quantity table)
+# ---------------------------------------------------------------------------
+
+def is_valid_lot_name(name):
+    """Same validation used in the last project's lot_utils.py:
+    YYMMDD + letter(s), e.g. '260610C' or '250121AA'."""
+    return len(name) >= 7 and name[:6].isdigit() and name[6:].isalpha()
+
+
+def _read_visible_gr_table_rows(usr_area):
+    """Read whatever rows of the GR Quantity table are currently
+    rendered, keyed by row number. This is an old-style table built
+    from individual lbl[col,row] labels, not a named-column grid —
+    confirmed via exploration. Only currently-visible rows exist as
+    real controls; scrolling is required to see more."""
+    children = usr_area.Children
+    page_rows = {}
+    for i in range(children.Count):
+        child = children.ElementAt(i)
+        if child.Type not in ("GuiLabel", "GuiCheckBox"):
+            continue
+        field_id = child.Id
+        try:
+            bracket_content = field_id.split("[")[-1].rstrip("]")
+            col_str, row_str = bracket_content.split(",")
+            col, row = int(col_str), int(row_str)
+        except Exception:
+            continue
+        try:
+            text = child.Text if child.Type == "GuiLabel" else child.Selected
+        except Exception:
+            text = "?"
+        page_rows.setdefault(row, {})[col] = text
+    return page_rows
+
+
+def find_new_lots(session, last_known_lot, page_size=20):
+    """Find lots newer than last_known_lot in the GR Quantity table
+    for config.MATERIAL_NUMBER, by scrolling from the bottom upward
+    and stopping as soon as last_known_lot is reached.
+
+    Column mapping confirmed via exploration:
+      col 1 = Batch, col 10 = Order, col 19 = Item Quantity,
+      col 37 = GR Quantity, col 55 = DCI (checkbox)
+
+    NOTE: jumping directly to the scrollbar's Maximum position
+    produced DIFFERENT (wrong, older) results than reaching the same
+    position incrementally during testing — this table's rendering
+    appears to depend on scroll path, not just final position. This
+    function jumps directly, matching what was actually tested and
+    confirmed correct; be cautious about assuming it'll always land
+    on the true bottom if SAP's table size changes.
+
+    Returns a dict keyed by Order number: {"batch", "order",
+    "item_qty", "gr_qty"} for each lot newer than last_known_lot,
+    filtered to real lot-name format only.
+    """
+    session.findById("wnd[0]").maximize()
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/nZPP_WI"
+    session.findById("wnd[0]").sendVKey(0)
+
+    order_field_id = "wnd[0]/usr/ctxtZZWOSCAN-AUFNR"
+    session.findById(order_field_id).setFocus()
+    session.findById(order_field_id).caretPosition = 0
+    session.findById("wnd[0]").sendVKey(4)
+    time.sleep(1)
+
+    checkbox_id = (
+        "wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001/"
+        "ssubSUBSCR_PRESEL:SAPLSDH4:0220/chkG_SELPOP_STATE-BUTTON"
+    )
+    session.findById(checkbox_id).selected = True
+
+    material_field_id = (
+        "wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001/"
+        "ssubSUBSCR_PRESEL:SAPLSDH4:0220/sub:SAPLSDH4:0220/"
+        "ctxtG_SELFLD_TAB-LOW[0,24]"
+    )
+    session.findById(material_field_id).text = config.MATERIAL_NUMBER
+    session.findById("wnd[1]/tbar[0]/btn[0]").press()
+
+    usr_area = session.findById("wnd[1]/usr")
+    scrollbar = usr_area.verticalScrollbar
+    max_position = scrollbar.Maximum
+
+    new_lots = {}
+    position = max_position
+    found_known_lot = False
+
+    while position >= 0 and not found_known_lot:
+        scrollbar.Position = position
+        time.sleep(0.3)
+
+        page_rows = _read_visible_gr_table_rows(usr_area)
+        for row, cols in sorted(page_rows.items(), reverse=True):
+            batch = cols.get(1, "").strip()
+            order = cols.get(10, "").strip()
+            if not batch or not order or order in ("Order",):
+                continue
+
+            if batch == last_known_lot:
+                found_known_lot = True
+                break
+
+            if not is_valid_lot_name(batch):
+                continue
+
+            if order not in new_lots:
+                new_lots[order] = {
+                    "batch": batch,
+                    "order": order,
+                    "item_qty": cols.get(19, "").strip(),
+                    "gr_qty": cols.get(37, "").strip(),
+                }
+
+        if position == 0:
+            break
+        position = max(position - page_size, 0)
+
+    return new_lots
+
+
+def filter_ready_lots(new_lots):
+    """Filter find_new_lots() results down to lots where GR Quantity
+    != 0 (per original step 3.3.1 — GR quantity 0 means not ready)."""
+    ready = {}
+    for order, data in new_lots.items():
+        gr_qty_str = data["gr_qty"].replace(",", "")
+        try:
+            gr_qty_val = float(gr_qty_str)
+        except ValueError:
+            gr_qty_val = 0
+        if gr_qty_val != 0:
+            ready[order] = data
+    return ready

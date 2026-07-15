@@ -17,6 +17,18 @@ USE_TEST_PATHS = True
 # rolling year — so 2026 data stays visible even once 2027 starts.
 CHART_DATA_START_YEAR = 2026
 
+# TODO: this is a placeholder built from what we've seen in WO Data
+# screenshots — replace with a real read of WO Data column E before
+# this becomes part of the real pipeline.
+KNOWN_LOTS = {
+    "260126M", "260130D", "260130E", "260206G", "260212F", "260220G",
+    "260226H", "260312E", "260312F", "260319I", "260325J", "260325R",
+    "260403F", "260418C", "260420A", "260422M", "260422N", "260428F",
+    "260428G", "260429G", "260507C", "260507D", "260521F", "260521G",
+    "260528C", "260603C", "260603D", "260610C", "260610D", "260616C",
+    "260616D", "260624C", "260624D", "260630C",
+}
+
 VERBOSE = True
 
 
@@ -72,6 +84,8 @@ SOURCE_COLUMN_SEAL_STRENGTH = "Sample Seal Strength Column (lbf)"  # display nam
 # Real cell addresses confirmed against SOPGEM-45-2 (see
 # tests/sap/test_locate_fill_line_and_data.py for how these were found)
 SOURCE_PRODUCT_NAME_CELL = "C3"       # e.g. "5K LYSING"
+SOURCE_PART_NUMBER_CELL = "C4"        # e.g. "000470088" - was missing,
+                                       # never read before this fix
 SOURCE_WO_NUMBER_CELL = "G3"
 SOURCE_FILL_LINE_CELL = "G6"          # header-level fill line, e.g. "FF1"
 
