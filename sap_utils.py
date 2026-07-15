@@ -15,7 +15,7 @@ completed/closed orders that a naive approach failed on):
      (000006/0030 are the sub-operation/operation for the GEM log
      document specifically - constant for every lot).
   4. Open that document. SAP writes it to a predictable local path:
-       %LOCALAPPDATA%\SAP\SAP GUI\tmp\{doc_number}.xlsx
+       %LOCALAPPDATA%\\SAP\\SAP GUI\\tmp\\{doc_number}.xlsx
   5. Poll for that file and open it directly.
 
 WHY NOT THE ROUTING TAB: an earlier approach tried clicking operation
@@ -94,13 +94,16 @@ def get_expected_temp_file_path(doc_number):
 # Documents List navigation (the proven path)
 # ---------------------------------------------------------------------------
 
-def open_gem_log_via_documents_list(session, wo_number):
-    """Open the GEM log document via the Documents List tab, searching
-    for the derived document number in the real DOKNR column. Returns
-    the document number that was opened (for use in polling the temp
-    file path afterward)."""
-    doc_number = derive_gem_log_document_number(wo_number)
+def find_document_candidates(session, wo_number):
+    """Build an ordered list of candidate documents to try, ranked by
+    confidence. Does NOT check content — a matched document can still
+    be genuinely blank (confirmed on 260610C: the derived-number match
+    was a real, correctly-numbered but empty template, not a
+    mislabeled autosave). Content must be checked after opening, by
+    the caller — see get_gem_log_sheet_for_wo().
 
+    Returns a list of dicts: {"row": int, "doc_number": str, "reason": str}
+    """
     docs_tab_id = "wnd[0]/usr/tabsTABS_0200/tabpTAB02"
     session.findById(docs_tab_id).select()
     time.sleep(1)
@@ -110,25 +113,60 @@ def open_gem_log_via_documents_list(session, wo_number):
         "ssubSUBSCREEN:SAPLZPPDB:0100/cntlZPPDB_CONT/shellcont/shell"
     )
     grid = session.findById(grid_id)
-
-    matched_row = None
     row_count = grid.RowCount
+    print(f"  Documents List has {row_count} rows.")
+
+    candidates = []
+
+    doc_number = derive_gem_log_document_number(wo_number)
+    print(f"  Derived document number: {doc_number}")
     for row in range(row_count):
         cell_value = grid.GetCellValue(row, "DOKNR")
         if cell_value and cell_value.strip() == doc_number:
-            matched_row = row
+            candidates.append({
+                "row": row, "doc_number": cell_value.strip(),
+                "reason": "derived number match",
+            })
+            print(f"  Candidate 1: row {row} (derived number match)")
             break
 
-    if matched_row is None:
+    keywords = [k.lower() for k in config.DOC_LIST_SEARCH_KEYWORDS]
+    scored_rows = []
+    for row in range(row_count):
+        description = (grid.GetCellValue(row, "DKTXT") or "").lower()
+        score = sum(1 for k in keywords if k in description)
+        if score >= 2:
+            scored_rows.append((score, row))
+    scored_rows.sort(reverse=True)  # highest score first
+
+    for score, row in scored_rows:
+        row_doc_number = (grid.GetCellValue(row, "DOKNR") or "").strip()
+        if any(c["row"] == row for c in candidates):
+            continue  # already the derived-number candidate
+        candidates.append({
+            "row": row, "doc_number": row_doc_number,
+            "reason": f"keyword score {score}",
+        })
+        print(f"  Candidate {len(candidates)}: row {row} "
+              f"(keyword score {score})")
+
+    if not candidates:
         raise ValueError(
-            f"Could not find document {doc_number!r} in the Documents "
-            f"List grid ({row_count} rows checked). The document "
-            f"number formula may not hold for this WO, or the "
-            f"document genuinely isn't listed here."
+            f"No candidate documents found for WO {wo_number} — "
+            f"neither derived number nor keyword search matched anything."
         )
 
-    grid.setCurrentCell(matched_row, "DOKNR")
-    grid.selectedRows = str(matched_row)
+    return grid, candidates
+
+
+def open_document_row(session, grid, row):
+    """Click a specific Documents List row open and return the real
+    document number from that row (for temp-file polling)."""
+    doc_number = (grid.GetCellValue(row, "DOKNR") or "").strip()
+    print(f"  Opening row {row} (doc {doc_number})...")
+
+    grid.setCurrentCell(row, "DOKNR")
+    grid.selectedRows = str(row)
     grid.clickCurrentCell()
     time.sleep(1.5)
 
@@ -144,19 +182,43 @@ def open_gem_log_via_documents_list(session, wo_number):
     return doc_number
 
 
-def wait_for_temp_file(doc_number, max_attempts=10, poll_seconds=1):
-    """Poll for SAP to finish writing the opened document to its
-    predictable local temp path. Returns the path once found, or
-    raises TimeoutError."""
-    expected_path = get_expected_temp_file_path(doc_number)
+def snapshot_temp_folder():
+    """Record current files in the SAP temp folder, to detect whatever
+    NEW file appears after opening a document — more robust than
+    predicting a filename, since different document types use
+    different naming conventions (confirmed: 'ATA1...' documents use
+    their original uploaded filename, not doc_number.xlsx)."""
+    temp_folder = os.path.expandvars(config.SAP_TEMP_FOLDER_TEMPLATE)
+    if not os.path.exists(temp_folder):
+        return set()
+    return set(os.listdir(temp_folder))
+
+
+def wait_for_new_temp_file(files_before, max_attempts=10, poll_seconds=1):
+    """Poll the SAP temp folder for a file that wasn't in files_before.
+    Returns the full path once found, or raises TimeoutError."""
+    temp_folder = os.path.expandvars(config.SAP_TEMP_FOLDER_TEMPLATE)
 
     for attempt in range(1, max_attempts + 1):
         time.sleep(poll_seconds)
-        if os.path.exists(expected_path):
-            return expected_path
+        if not os.path.exists(temp_folder):
+            continue
+        current_files = set(os.listdir(temp_folder))
+        new_files = {
+            f for f in (current_files - files_before)
+            if not f.startswith("~$")  # Excel's own lock file, not
+                                        # the real document
+        }
+        if new_files:
+            newest = max(
+                new_files,
+                key=lambda f: os.path.getmtime(os.path.join(temp_folder, f))
+            )
+            return os.path.join(temp_folder, newest)
 
     raise TimeoutError(
-        f"File not found after {max_attempts} attempts: {expected_path}"
+        f"No new file appeared in {temp_folder} after {max_attempts} "
+        f"attempts."
     )
 
 
@@ -164,20 +226,49 @@ def wait_for_temp_file(doc_number, max_attempts=10, poll_seconds=1):
 # Orchestration helper
 # ---------------------------------------------------------------------------
 
+def _document_has_real_content(sheet):
+    """Check whether an opened document actually has real data, not
+    just a blank template with the right document number (confirmed
+    real failure mode on 260610C)."""
+    fill_line = sheet.Range(config.SOURCE_FILL_LINE_CELL).Value
+    if fill_line in config.VALID_FILL_LINES:
+        return True
+    return False
+
+
 def get_gem_log_sheet_for_wo(wo_number):
-    """Full pipeline: navigate to a WO, open its GEM log document via
-    Documents List, wait for it to be written locally, open it, and
-    return the (workbook, sheet) ready for excel_utils' read functions.
+    """Full pipeline: navigate to a WO, build a ranked list of
+    candidate documents, open each in order until one has real content
+    (not just a matching document number), and return the
+    (workbook, sheet) ready for excel_utils' read functions.
 
     Caller is responsible for closing the returned workbook when done.
     """
     session = get_sap_session()
     navigate_to_wo_directly(session, wo_number)
-    doc_number = open_gem_log_via_documents_list(session, wo_number)
-    file_path = wait_for_temp_file(doc_number)
+    grid, candidates = find_document_candidates(session, wo_number)
 
-    excel_app = win32com.client.Dispatch("Excel.Application")
-    workbook = excel_app.Workbooks.Open(file_path)
-    sheet = workbook.Sheets(config.SOURCE_SHEET_NAME)
+    for candidate in candidates:
+        print(f"  Trying candidate: row {candidate['row']} "
+              f"({candidate['reason']})")
+        files_before = snapshot_temp_folder()
+        open_document_row(session, grid, candidate["row"])
+        file_path = wait_for_new_temp_file(files_before)
+        print(f"  New file: {file_path}")
 
-    return workbook, sheet
+        excel_app = win32com.client.Dispatch("Excel.Application")
+        workbook = excel_app.Workbooks.Open(file_path, ReadOnly=True)
+        sheet = workbook.Sheets(config.SOURCE_SHEET_NAME)
+
+        if _document_has_real_content(sheet):
+            print(f"  ACCEPTED: real content found.")
+            return workbook, sheet
+
+        print(f"  REJECTED: blank/template content, trying next "
+              f"candidate.")
+        workbook.Close(SaveChanges=False)
+
+    raise ValueError(
+        f"No candidate document for WO {wo_number} had real content "
+        f"— all {len(candidates)} candidate(s) were blank templates."
+    )

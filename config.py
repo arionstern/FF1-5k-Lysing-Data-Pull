@@ -34,6 +34,7 @@ ROUTING_DESCRIPTION = "In-Process GEM Logs ( 0030 - 0060 )"
 # Fallback search text if the routing step isn't found and we have to
 # search Doc List instead (step 4.4)
 DOC_LIST_SEARCH_TEXT = "gem log fill lot"
+DOC_LIST_SEARCH_KEYWORDS = ["gem", "fill", "lot", "log", "in-process"]
 
 # MAJOR DISCOVERY: the GEM log document number is fully DERIVABLE from
 # the WO number alone — confirmed against 3 real lots:
