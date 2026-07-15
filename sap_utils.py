@@ -161,7 +161,17 @@ def find_document_candidates(session, wo_number):
 
 def open_document_row(session, grid, row):
     """Click a specific Documents List row open and return the real
-    document number from that row (for temp-file polling)."""
+    document number from that row (for temp-file polling).
+
+    Re-selects the tab and sets grid focus first — needed when this
+    isn't the first candidate tried in a session, since the previous
+    candidate's Excel window opening/closing can steal SAP's focus.
+    """
+    docs_tab_id = "wnd[0]/usr/tabsTABS_0200/tabpTAB02"
+    session.findById(docs_tab_id).select()
+    grid.SetFocus()
+    time.sleep(0.5)
+
     doc_number = (grid.GetCellValue(row, "DOKNR") or "").strip()
     print(f"  Opening row {row} (doc {doc_number})...")
 
@@ -194,31 +204,30 @@ def snapshot_temp_folder():
     return set(os.listdir(temp_folder))
 
 
-def wait_for_new_temp_file(files_before, max_attempts=10, poll_seconds=1):
-    """Poll the SAP temp folder for a file that wasn't in files_before.
-    Returns the full path once found, or raises TimeoutError."""
+def wait_for_new_temp_file(start_time, max_attempts=10, poll_seconds=1):
+    """Poll the SAP temp folder for the most recently modified .xlsx
+    file, checked against start_time (must be captured BEFORE
+    triggering the click — capturing it inside this function was too
+    late, since SAP can finish writing during the click's own wait,
+    before this function is even called)."""
     temp_folder = os.path.expandvars(config.SAP_TEMP_FOLDER_TEMPLATE)
 
     for attempt in range(1, max_attempts + 1):
         time.sleep(poll_seconds)
         if not os.path.exists(temp_folder):
             continue
-        current_files = set(os.listdir(temp_folder))
-        new_files = {
-            f for f in (current_files - files_before)
-            if not f.startswith("~$")  # Excel's own lock file, not
-                                        # the real document
-        }
-        if new_files:
-            newest = max(
-                new_files,
-                key=lambda f: os.path.getmtime(os.path.join(temp_folder, f))
-            )
-            return os.path.join(temp_folder, newest)
+        xlsx_files = [
+            f for f in os.listdir(temp_folder)
+            if f.lower().endswith(".xlsx") and not f.startswith("~$")
+        ]
+        for f in xlsx_files:
+            full_path = os.path.join(temp_folder, f)
+            if os.path.getmtime(full_path) >= start_time:
+                return full_path
 
     raise TimeoutError(
-        f"No new file appeared in {temp_folder} after {max_attempts} "
-        f"attempts."
+        f"No file modified after {start_time} found in {temp_folder} "
+        f"after {max_attempts} attempts."
     )
 
 
@@ -251,9 +260,9 @@ def get_gem_log_sheet_for_wo(wo_number):
     for candidate in candidates:
         print(f"  Trying candidate: row {candidate['row']} "
               f"({candidate['reason']})")
-        files_before = snapshot_temp_folder()
+        start_time = time.time()
         open_document_row(session, grid, candidate["row"])
-        file_path = wait_for_new_temp_file(files_before)
+        file_path = wait_for_new_temp_file(start_time)
         print(f"  New file: {file_path}")
 
         excel_app = win32com.client.Dispatch("Excel.Application")
