@@ -97,11 +97,20 @@ def get_boxplot_column_names_from_year(worksheet, start_year=None):
     start_year onward (NOT a single rolling year — cumulative, so this
     doesn't reset/exclude 2026 data once 2027 starts). Parsed
     dynamically from each column's date-based name.
-    Defaults to config.CHART_DATA_START_YEAR."""
+    Defaults to config.CHART_DATA_START_YEAR.
+
+    Returns names sorted by ACTUAL PARSED DATE, not worksheet position
+    — these normally match (new columns append rightmost), but break
+    if a column ever lands out of position (e.g. stray empty columns
+    shifting a write, or backfilling an older lot after newer ones
+    already exist). Confirmed real bug: a column at a later position
+    but earlier date plotted in the wrong order on the chart.
+    """
+    from datetime import datetime
     start_year = start_year or config.CHART_DATA_START_YEAR
 
     all_names = get_existing_boxplot_column_names(worksheet)
-    filtered_names = []
+    dated_names = []
     for name in all_names:
         # Names look like "6/10/2026" or "6/10/2026_1" — strip any
         # "_N" suffix before parsing the date
@@ -110,13 +119,17 @@ def get_boxplot_column_names_from_year(worksheet, start_year=None):
         if len(parts) != 3:
             continue
         try:
-            name_year = int(parts[2])
-            if name_year >= start_year:
-                filtered_names.append(name)
+            month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
+            if year < 100:  # 2-digit year like "26" -> 2026, confirmed
+                             # real existing columns use this format
+                year += 2000
+            if year >= start_year:
+                dated_names.append((datetime(year, month, day), name))
         except ValueError:
             continue
 
-    return filtered_names
+    dated_names.sort(key=lambda x: x[0])
+    return [name for _, name in dated_names]
 
 
 def determine_unique_boxplot_column_name(worksheet, fill_date):
@@ -251,11 +264,22 @@ def regenerate_boxplot_chart(project, boxplot_sheet=None):
             f"onward — nothing to chart."
         )
 
-    first_col, last_col = column_names[0], column_names[-1]
+    # Explicit column list, NOT a 'first'-'last' range — a range spans
+    # every column POSITION in between, including any stray empty
+    # columns (e.g. leftover from testing), which breaks the chart
+    # with "No data in column CN" even though our real data is fine.
+    # column_names already excludes unnamed/empty columns (they fail
+    # the date-parsing check in get_boxplot_column_names_from_year).
+    # NOTE: this specific combination (explicit column LIST + Overlay)
+    # hasn't been directly tested yet — we've confirmed range+Overlay
+    # works, and separately confirmed a plain list WITHOUT Overlay
+    # produces separate tiled charts (bad). Worth verifying this
+    # combination produces one combined chart, not tiled ones.
+    column_list = " ".join(f"'{name}'" for name in column_names)
     chart_config = config.MINITAB_BOXPLOT_CHART
 
     command_text = (
-        f"Boxplot '{first_col}'-'{last_col}';\n"
+        f"Boxplot {column_list};\n"
         f"  Overlay;\n"
         f"  IQRBox;\n"
         f"  Outlier;\n"

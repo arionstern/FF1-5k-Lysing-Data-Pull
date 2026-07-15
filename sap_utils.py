@@ -313,6 +313,25 @@ def is_valid_lot_name(name):
     return len(name) >= 7 and name[:6].isdigit() and name[6:].isalpha()
 
 
+def parse_lot_date(batch):
+    """Parse the YYMMDD prefix from a batch/lot name into a real
+    datetime object, e.g. '260630C' -> datetime(2026, 6, 30). Returns
+    None if the batch doesn't match the expected format.
+
+    NOTE: returns datetime, not date — both Excel COM and Minitab COM
+    reject a raw datetime.date object ("must be a pywintypes time
+    object" / similar errors), confirmed via real testing.
+    """
+    from datetime import datetime
+    if not is_valid_lot_name(batch):
+        return None
+    try:
+        yy, mm, dd = int(batch[0:2]), int(batch[2:4]), int(batch[4:6])
+        return datetime(2000 + yy, mm, dd)
+    except ValueError:
+        return None
+
+
 def _read_visible_gr_table_rows(usr_area):
     """Read whatever rows of the GR Quantity table are currently
     rendered, keyed by row number. This is an old-style table built
