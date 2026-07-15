@@ -159,16 +159,34 @@ def find_document_candidates(session, wo_number):
     return grid, candidates
 
 
-def open_document_row(session, grid, row):
+def navigate_back_to_order_screen(session):
+    """Navigate back to the order-level screen (with the tab strip),
+    since opening a document navigates one level deeper into a
+    "Display Document" screen — needed before trying another
+    candidate document."""
+    session.findById("wnd[0]/tbar[0]/btn[3]").press()  # Back
+    time.sleep(1)
+
+
+def open_document_row(session, row):
     """Click a specific Documents List row open and return the real
     document number from that row (for temp-file polling).
 
     Re-selects the tab and sets grid focus first — needed when this
-    isn't the first candidate tried in a session, since the previous
-    candidate's Excel window opening/closing can steal SAP's focus.
+    isn't the first candidate tried in a session, since opening a
+    document navigates SAP itself one level deeper (into a "Display
+    Document" screen), not just launches Excel — the order-level tab
+    strip doesn't exist on that screen, so the caller must navigate
+    back first (see navigate_back_to_order_screen).
     """
     docs_tab_id = "wnd[0]/usr/tabsTABS_0200/tabpTAB02"
     session.findById(docs_tab_id).select()
+    grid_id = (
+        "wnd[0]/usr/tabsTABS_0200/tabpTAB02/"
+        "ssubSUBSCREEN:SAPLZPPDB:0100/cntlZPPDB_CONT/shellcont/shell"
+    )
+    grid = session.findById(grid_id)  # re-fetched fresh, not reused —
+                                       # stale after navigating away/back
     grid.SetFocus()
     time.sleep(0.5)
 
@@ -257,11 +275,13 @@ def get_gem_log_sheet_for_wo(wo_number):
     navigate_to_wo_directly(session, wo_number)
     grid, candidates = find_document_candidates(session, wo_number)
 
-    for candidate in candidates:
+    for i, candidate in enumerate(candidates):
         print(f"  Trying candidate: row {candidate['row']} "
               f"({candidate['reason']})")
+        if i > 0:
+            navigate_back_to_order_screen(session)
         start_time = time.time()
-        open_document_row(session, grid, candidate["row"])
+        open_document_row(session, candidate["row"])
         file_path = wait_for_new_temp_file(start_time)
         print(f"  New file: {file_path}")
 
