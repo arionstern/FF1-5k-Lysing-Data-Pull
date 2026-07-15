@@ -31,12 +31,17 @@ def main():
     first_col = column_names[0]
     last_col = column_names[-1]
 
+    chart_config = config.MINITAB_BOXPLOT_CHART
     command_text = (
         f"Boxplot '{first_col}'-'{last_col}';\n"
         f"  Overlay;\n"
         f"  IQRBox;\n"
-        f"  Outlier."
+        f"  Outlier;\n"
+        f"  Title \"{chart_config['title']}\"."
     )
+    # XLabel/YLabel dropped — they specifically failed before and
+    # killed the whole command, so Title's validity was never actually
+    # confirmed on its own. Testing it alone here.
 
     print(f"\nAttempting real captured syntax:\n{command_text}\n")
 
