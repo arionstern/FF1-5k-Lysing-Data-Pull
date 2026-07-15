@@ -24,45 +24,32 @@ def main():
     mtb, project = minitab_utils.open_minitab_project()
     boxplot_sheet = minitab_utils.get_worksheet(project, config.DEST_BOXPLOT_SHEET)
 
-    column_names = minitab_utils.get_existing_boxplot_column_names(boxplot_sheet)
-    print(f"Found {len(column_names)} columns to include in the boxplot.")
+    column_names = minitab_utils.get_current_year_boxplot_column_names(boxplot_sheet)
+    print(f"Found {len(column_names)} columns for the current year.")
 
-    # Build the command text — best guess at classic Minitab Command
-    # Language syntax for a multi-Y simple boxplot with title/axis
-    # labels. Column names with special characters (like '/') need
-    # single quotes around each one.
-    column_list = " ".join(f"'{name}'" for name in column_names)
-    chart_config = config.MINITAB_BOXPLOT_CHART
+    first_col = column_names[0]
+    last_col = column_names[-1]
 
-    # XLabel/YLabel are NOT valid Boxplot subcommands (confirmed via
-    # real Minitab error) — dropping them. Title alone may still work;
-    # axis labels may need a different mechanism entirely (possibly
-    # not settable via this command at all, or need "Footnote" etc.)
     command_text = (
-        f"Boxplot {column_list};\n"
-        f"  Title \"{chart_config['title']}\"."
+        f"Boxplot '{first_col}'-'{last_col}';\n"
+        f"  Overlay;\n"
+        f"  IQRBox;\n"
+        f"  Outlier."
     )
 
-    print(f"\nAttempting command:\n{command_text[:300]}...\n")
+    print(f"\nAttempting real captured syntax:\n{command_text}\n")
 
     commands_before = project.Commands.Count
-    try:
-        project.ExecuteCommand(command_text)
-    except Exception as e:
-        print(f"Python-level exception: {e}")
-
-    # ExecuteCommand does NOT raise on Minitab-side syntax errors — it
-    # just prints the error into Minitab's own Session window. The
-    # only real way to check success is whether a new command actually
-    # got created.
+    project.ExecuteCommand(command_text)
     commands_after = project.Commands.Count
+
     if commands_after > commands_before:
-        print(f"SUCCESS: new command created "
-              f"({commands_before} -> {commands_after}).")
+        print(f"Command created ({commands_before} -> {commands_after}). "
+              f"Check Minitab visually — is it ONE combined chart now, "
+              f"not separate tiled ones?")
     else:
-        print(f"FAILED: command count unchanged ({commands_before}) — "
-              f"check Minitab's Session window for the real error "
-              f"message, since ExecuteCommand won't raise one here.")
+        print(f"FAILED: command count unchanged. Check Minitab's "
+              f"Session window for the real error.")
 
 
 if __name__ == "__main__":
