@@ -38,24 +38,23 @@ def main():
         f"  IQRBox;\n"
         f"  Outlier;\n"
         f"  Title \"{chart_config['title']}\";\n"
-        f"  Scale 1;\n"
-        f"    Label \"{chart_config['x_axis']}\";\n"
-        f"  Scale 2;\n"
-        f"    Label \"{chart_config['y_axis']}\"."
+        f"  AxLabel 1 \"{chart_config['x_axis']}\";\n"
+        f"  AxLabel 2 \"{chart_config['y_axis']}\"."
     )
-    # Testing Scale/Label as an alternative to XLabel/YLabel (which
-    # confirmed don't exist for Boxplot) — unverified, worth trying
+    # AxLabel is documented as a SESSION SUBCOMMAND, not a standalone
+    # command — that's why the earlier separate-command attempt failed
+    # with "Unknown Minitab command". Testing it nested inside
+    # Boxplot's own subcommand block this time.
 
-    print(f"\nAttempting real captured syntax:\n{command_text}\n")
+    print(f"\nAttempting:\n{command_text}\n")
 
     commands_before = project.Commands.Count
     project.ExecuteCommand(command_text)
     commands_after = project.Commands.Count
 
     if commands_after > commands_before:
-        print(f"Command created ({commands_before} -> {commands_after}). "
-              f"Check Minitab visually — is it ONE combined chart now, "
-              f"not separate tiled ones?")
+        print(f"Chart created ({commands_before} -> {commands_after}). "
+              f"Check visually for both axis labels.")
     else:
         print(f"FAILED: command count unchanged. Check Minitab's "
               f"Session window for the real error.")
