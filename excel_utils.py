@@ -54,9 +54,13 @@ def validate_fill_line(fill_line):
 
 
 def read_lot_metadata(sheet):
-    """Read product name, WO number from the source sheet header."""
+    """Read product name, part number, WO number from the source
+    sheet header. NOTE: part_number was missing entirely until this
+    fix — Run_Lysing_Pull.py's WO Data append would have silently
+    written a blank Part Number for every genuinely new lot."""
     return {
         "product_name": sheet.Range(config.SOURCE_PRODUCT_NAME_CELL).Value,
+        "part_number": sheet.Range(config.SOURCE_PART_NUMBER_CELL).Value,
         "wo_number": sheet.Range(config.SOURCE_WO_NUMBER_CELL).Value,
     }
 
@@ -117,6 +121,18 @@ def find_next_open_wo_data_row(sheet):
         return 2
 
     return last_used_row + 1
+
+
+def get_last_known_lot(sheet):
+    """Get the most recent lot number in WO Data column E, using the
+    same End(xlUp) trick as find_next_open_wo_data_row — the row just
+    above the next-open row is the last known lot. Used by
+    sap_utils.find_new_lots() as the stopping point for its scan."""
+    next_open_row = find_next_open_wo_data_row(sheet)
+    last_row = next_open_row - 1
+    if last_row < 2:
+        return None  # sheet is genuinely empty
+    return str(sheet.Range(f"{config.COL_LOT_NUMBER}{last_row}").Value)
 
 
 def append_wo_data_row(sheet, fill_date, filler, part_number, product_name,
