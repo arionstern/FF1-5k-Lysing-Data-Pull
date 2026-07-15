@@ -222,6 +222,63 @@ def write_control_chart_row(worksheet, lot_number, wo_number, fill_date,
 
 
 # ---------------------------------------------------------------------------
+# Boxplot chart generation
+# ---------------------------------------------------------------------------
+
+def regenerate_boxplot_chart(project, boxplot_sheet=None):
+    """Regenerate the combined Boxplot chart (Multiple Y's, Simple)
+    covering all data from config.CHART_DATA_START_YEAR onward.
+
+    Confirmed working syntax, including title AND axis labels:
+    range selection + Overlay/IQRBox/Outlier + Title + AxLabel 1/2.
+    AxLabel is a SESSION SUBCOMMAND (found via Minitab's own
+    "Help Boxplot." documentation) — it must be nested inside the
+    Boxplot command's own subcommand block, not issued as a separate
+    command afterward (that fails with "Unknown Minitab command").
+    K=1 targets the X-axis, K=2 targets the Y-axis.
+
+    Unlike Xbar (which auto-updates on the Control Chart worksheet as
+    new rows are added), Boxplot does NOT auto-update since each new
+    lot is a brand-new column — this needs to be re-run every time new
+    data is written.
+    """
+    boxplot_sheet = boxplot_sheet or get_worksheet(project, config.DEST_BOXPLOT_SHEET)
+
+    column_names = get_boxplot_column_names_from_year(boxplot_sheet)
+    if not column_names:
+        raise ValueError(
+            f"No columns found from {config.CHART_DATA_START_YEAR} "
+            f"onward — nothing to chart."
+        )
+
+    first_col, last_col = column_names[0], column_names[-1]
+    chart_config = config.MINITAB_BOXPLOT_CHART
+
+    command_text = (
+        f"Boxplot '{first_col}'-'{last_col}';\n"
+        f"  Overlay;\n"
+        f"  IQRBox;\n"
+        f"  Outlier;\n"
+        f"  Title \"{chart_config['title']}\";\n"
+        f"  AxLabel 1 \"{chart_config['x_axis']}\";\n"
+        f"  AxLabel 2 \"{chart_config['y_axis']}\"."
+    )
+
+    commands_before = project.Commands.Count
+    project.ExecuteCommand(command_text)
+    commands_after = project.Commands.Count
+
+    if commands_after <= commands_before:
+        raise RuntimeError(
+            "Boxplot command did not create a new chart — check "
+            "Minitab's Session window for the real error (ExecuteCommand "
+            "does not raise on Minitab-side syntax errors)."
+        )
+
+    return project.Commands.Item(commands_after)
+
+
+# ---------------------------------------------------------------------------
 # Orchestration helper
 # ---------------------------------------------------------------------------
 
