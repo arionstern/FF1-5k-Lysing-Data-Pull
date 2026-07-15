@@ -92,16 +92,16 @@ def get_existing_boxplot_column_names(worksheet):
     ]
 
 
-def get_current_year_boxplot_column_names(worksheet, year=None):
-    """Filter existing Boxplot column names down to a single year,
-    parsed from each column's date-based name — dynamic, not a
-    hardcoded starting date, so this doesn't need updating every
-    January. Defaults to the current calendar year."""
-    from datetime import datetime
-    year = year or datetime.now().year
+def get_boxplot_column_names_from_year(worksheet, start_year=None):
+    """Filter existing Boxplot column names to everything from
+    start_year onward (NOT a single rolling year — cumulative, so this
+    doesn't reset/exclude 2026 data once 2027 starts). Parsed
+    dynamically from each column's date-based name.
+    Defaults to config.CHART_DATA_START_YEAR."""
+    start_year = start_year or config.CHART_DATA_START_YEAR
 
     all_names = get_existing_boxplot_column_names(worksheet)
-    current_year_names = []
+    filtered_names = []
     for name in all_names:
         # Names look like "6/10/2026" or "6/10/2026_1" — strip any
         # "_N" suffix before parsing the date
@@ -111,12 +111,12 @@ def get_current_year_boxplot_column_names(worksheet, year=None):
             continue
         try:
             name_year = int(parts[2])
-            if name_year == year:
-                current_year_names.append(name)
+            if name_year >= start_year:
+                filtered_names.append(name)
         except ValueError:
             continue
 
-    return current_year_names
+    return filtered_names
 
 
 def determine_unique_boxplot_column_name(worksheet, fill_date):

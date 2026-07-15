@@ -24,8 +24,9 @@ def main():
     mtb, project = minitab_utils.open_minitab_project()
     boxplot_sheet = minitab_utils.get_worksheet(project, config.DEST_BOXPLOT_SHEET)
 
-    column_names = minitab_utils.get_current_year_boxplot_column_names(boxplot_sheet)
-    print(f"Found {len(column_names)} columns for the current year.")
+    column_names = minitab_utils.get_boxplot_column_names_from_year(boxplot_sheet)
+    print(f"Found {len(column_names)} columns from "
+          f"{config.CHART_DATA_START_YEAR} onward.")
 
     first_col = column_names[0]
     last_col = column_names[-1]

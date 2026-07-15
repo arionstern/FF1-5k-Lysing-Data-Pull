@@ -13,6 +13,10 @@ FF1 5k Lysing pull automation. Change values here, not inline elsewhere.
 # on assignment order or manual commenting-out.
 USE_TEST_PATHS = True
 
+# Charts show cumulative data from this year onward, not a single
+# rolling year — so 2026 data stays visible even once 2027 starts.
+CHART_DATA_START_YEAR = 2026
+
 VERBOSE = True
 
 
