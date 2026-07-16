@@ -22,6 +22,7 @@ import config
 import sap_utils
 import excel_utils
 import minitab_utils
+import outlook_utils
 
 
 def lot_exists_in_wo_data(wo_data_sheet, lot_number):
@@ -140,11 +141,13 @@ def main():
     mtb, mtb_project = minitab_utils.open_minitab_project()
 
     results = []
+    successful_fill_dates = []
     for lot_number, wo_number, fill_date in lots_to_process:
         try:
             process_one_lot(lot_number, wo_number, fill_date,
                              dest_workbook, mtb_project)
             results.append((lot_number, "OK"))
+            successful_fill_dates.append(fill_date)
         except Exception as e:
             print(f"FAILED on lot {lot_number}: {e}")
             results.append((lot_number, f"FAILED: {e}"))
@@ -160,15 +163,34 @@ def main():
     time.sleep(2)  # let Minitab fully register the new column's data
                     # first — running the chart command immediately
                     # after writing hit "No data in column C60"
+    boxplot_command = None
     try:
-        minitab_utils.regenerate_boxplot_chart(mtb_project)
+        boxplot_command = minitab_utils.regenerate_boxplot_chart(mtb_project)
         print("Chart regenerated.")
     except Exception as e:
         print(f"FAILED to regenerate chart: {e}")
 
+    if boxplot_command is not None and successful_fill_dates:
+        print("\nBuilding reply-all email draft...")
+        try:
+            import os
+            output_folder = os.path.join(os.getcwd(), "chart_exports")
+            chart_paths = minitab_utils.export_boxplot_and_xbar(
+                mtb_project, boxplot_command, output_folder
+            )
+            outlook_utils.send_update_reply(
+                successful_fill_dates, chart_paths, display=True
+            )
+            print("Draft created and displayed for review — NOT sent "
+                  "automatically. Review and send manually.")
+        except Exception as e:
+            print(f"FAILED to build email draft: {e}")
+    else:
+        print("\nSkipping email — no successful lots or chart wasn't "
+              "regenerated.")
+
     print("\nBoth destination files left OPEN, NOT SAVED. Review")
-    print("everything before saving. Reply-all email (step 7) is not")
-    print("automated yet either -- see notes at the bottom of this file.")
+    print("everything before saving.")
 
 
 if __name__ == "__main__":
@@ -201,7 +223,12 @@ if __name__ == "__main__":
 #   against real live SAP data as of this writing -- every lot found
 #   ready so far already existed in WO Data. Test this specifically
 #   before trusting it unattended.
-# - Reply-all email (step 7) -- not started
+# - Reply-all email (step 7) -- wired in and tested via
+#   tests/outlook/test_email_pipeline_staged.py. Draft is displayed
+#   for manual review/send, never auto-sent. Date-range phrasing in
+#   the summary line is only confirmed against a small number of real
+#   examples -- worth double-checking wording on edge cases (e.g. 2
+#   lots, not just 1 or 3).
 # - Old boxplot chart commands accumulate in Minitab's history each
 #   time regenerate_boxplot_chart() runs -- nothing deletes the
 #   previous one. Worth cleaning up / auto-deleting old chart commands

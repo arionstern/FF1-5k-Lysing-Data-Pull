@@ -327,6 +327,47 @@ def regenerate_boxplot_chart(project, boxplot_sheet=None):
     return project.Commands.Item(commands_after)
 
 
+def export_chart(command, output_path):
+    """Export a chart command's graph to an image file. Works for any
+    command that has a graph output, e.g. the return value of
+    regenerate_boxplot_chart()."""
+    graph = command.Outputs.Item(1).Graph
+    graph.SaveAs(output_path)
+    return output_path
+
+
+def find_latest_xbar_command(project):
+    """Xbar auto-updates (confirmed — no code needed to regenerate it),
+    but we still need to find and export its current state. Searches
+    Commands by name for the most recent 'Xbar Chart' entry, since
+    its exact name changes with bag count (e.g. 'Xbar Chart of
+    Bag 1, ..., Bag 38')."""
+    latest_xbar = None
+    for i in range(1, project.Commands.Count + 1):
+        command = project.Commands.Item(i)
+        if command.Name.startswith("Xbar Chart"):
+            latest_xbar = command  # keep overwriting — last match wins
+    if latest_xbar is None:
+        raise ValueError("No Xbar Chart command found in the project.")
+    return latest_xbar
+
+
+def export_boxplot_and_xbar(project, boxplot_command, output_folder):
+    """Export both charts as PNGs, matching the real email format
+    (Xbar first, then Boxplot below it)."""
+    import os
+    os.makedirs(output_folder, exist_ok=True)
+
+    xbar_command = find_latest_xbar_command(project)
+    xbar_path = os.path.join(output_folder, "xbar_chart.png")
+    export_chart(xbar_command, xbar_path)
+
+    boxplot_path = os.path.join(output_folder, "boxplot_chart.png")
+    export_chart(boxplot_command, boxplot_path)
+
+    return {"xbar": xbar_path, "boxplot": boxplot_path}
+
+
 # ---------------------------------------------------------------------------
 # Orchestration helper
 # ---------------------------------------------------------------------------
