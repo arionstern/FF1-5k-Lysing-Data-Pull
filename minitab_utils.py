@@ -169,10 +169,35 @@ def write_boxplot_column(worksheet, column_name, seal_values, max_rows=38):
         max_rows - len(seal_values)
     )
 
-    # Columns.Add() is the real method for creating a new column
-    # (confirmed via exploration — Item() alone can't create one,
-    # despite accepting an index argument that suggested it might).
-    new_column = worksheet.Columns.Add()
+    # Reuse the first genuinely empty column if one exists, instead of
+    # always appending past stray leftover gaps (e.g. from earlier
+    # test sessions). Confirmed real behavior (not blank as first
+    # assumed): an untouched column's Name defaults to its own
+    # position label (e.g. 'C60' for column 60), and GetData() RAISES
+    # an exception on a truly empty column rather than returning
+    # empty/None values.
+    reuse_column = None
+    for i in range(1, worksheet.Columns.Count + 1):
+        candidate = worksheet.Columns.Item(i)
+        if candidate.Name == f"C{i}":  # still at its default name
+            try:
+                candidate.GetData()
+                # If GetData() succeeds, it has data despite the
+                # default name — not actually empty, skip it.
+                continue
+            except Exception:
+                # GetData() raising is the real "empty" signal.
+                reuse_column = candidate
+                break
+
+    if reuse_column is not None:
+        new_column = reuse_column
+    else:
+        # Columns.Add() is the real method for creating a new column
+        # (confirmed via exploration — Item() alone can't create one,
+        # despite accepting an index argument that suggested it might).
+        new_column = worksheet.Columns.Add()
+
     new_column.Name = column_name
     new_column.SetData(padded_values)
 
