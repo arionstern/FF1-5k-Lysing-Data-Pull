@@ -95,9 +95,18 @@ def read_fill_date(workbook):
             f"since that could mask a real data problem."
         )
 
-    if isinstance(raw_value, datetime):
-        return raw_value
-    if isinstance(raw_value, date_type):
+    if isinstance(raw_value, (datetime, date_type)):
+        # NOTE: Excel COM returns pywintypes.datetime here, not a
+        # plain datetime.datetime. pywintypes.datetime IS a subclass
+        # of datetime.datetime, so `isinstance(raw_value, datetime)`
+        # is True for it -- but it carries a tzinfo (confirmed:
+        # TimeZoneInfo('GMT Standard Time', True)) that a real plain
+        # datetime.datetime does NOT have. Returning it as-is would
+        # silently hand tz-aware values downstream to code (Minitab
+        # SetData, date sorting/comparison in minitab_utils, the
+        # WO Data/dest Excel writes) that assumes naive datetimes --
+        # always rebuild a plain naive datetime.datetime here rather
+        # than trusting isinstance to mean "already the right type."
         return datetime(raw_value.year, raw_value.month, raw_value.day)
 
     raise ValueError(
