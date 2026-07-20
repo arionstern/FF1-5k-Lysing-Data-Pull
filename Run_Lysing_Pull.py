@@ -36,9 +36,11 @@ def lot_exists_in_wo_data(wo_data_sheet, lot_number):
     return False
 
 
-def process_one_lot(lot_number, wo_number, fill_date,
-                     dest_workbook, mtb_project):
-    """Runs one lot through the full pipeline: SAP -> Excel -> Minitab."""
+def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
+    """Runs one lot through the full pipeline: SAP -> Excel -> Minitab.
+    Returns the real fill_date, read from the source workbook's
+    dedicated header page — no longer accepted as a parameter, since
+    it can only be determined after the source workbook is open."""
     print(f"\n{'=' * 60}")
     print(f"Processing lot {lot_number} (WO {wo_number})")
     print(f"{'=' * 60}")
@@ -56,7 +58,15 @@ def process_one_lot(lot_number, wo_number, fill_date,
 
         metadata = excel_utils.read_lot_metadata(source_sheet)
         seal_values = excel_utils.read_seal_strength_values(source_sheet)
-        print(f"  Fill line: {fill_line}, {len(seal_values)} readings")
+
+        # Real fill date from the dedicated header page — NOT derived
+        # from the lot code text. Raises a clear error if missing/
+        # invalid rather than silently falling back (see
+        # excel_utils.read_fill_date's docstring for why).
+        fill_date = excel_utils.read_fill_date(source_workbook)
+
+        print(f"  Fill line: {fill_line}, {len(seal_values)} readings, "
+              f"fill date: {fill_date}")
     finally:
         source_workbook.Close(SaveChanges=False)
 
@@ -104,6 +114,7 @@ def process_one_lot(lot_number, wo_number, fill_date,
               f"Control Chart row {minitab_result['control_chart_row']}")
 
     print(f"Lot {lot_number} complete.")
+    return fill_date
 
 
 def main():
@@ -140,8 +151,7 @@ def main():
 
     lots_to_process = []
     for order, data in sorted(ready_lots.items()):
-        fill_date = sap_utils.parse_lot_date(data["batch"])
-        lots_to_process.append((data["batch"], order, fill_date))
+        lots_to_process.append((data["batch"], order))
 
     print(f"\nProcessing {len(lots_to_process)} lot(s)...")
 
@@ -149,10 +159,10 @@ def main():
 
     results = []
     successful_fill_dates = []
-    for lot_number, wo_number, fill_date in lots_to_process:
+    for lot_number, wo_number in lots_to_process:
         try:
-            process_one_lot(lot_number, wo_number, fill_date,
-                             dest_workbook, mtb_project)
+            fill_date = process_one_lot(lot_number, wo_number,
+                                         dest_workbook, mtb_project)
             results.append((lot_number, "OK"))
             successful_fill_dates.append(fill_date)
         except Exception as e:

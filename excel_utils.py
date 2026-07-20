@@ -65,6 +65,48 @@ def read_lot_metadata(sheet):
     }
 
 
+def read_fill_date(workbook):
+    """Read the real fill date from the dedicated 'GEM Fill Logs
+    Header Page' sheet (F16) — a DIFFERENT sheet than SOURCE_SHEET_NAME
+    (which only has fill_line/product_name/etc in its own embedded
+    header). Deliberately raises a clear error if this cell is blank
+    or not a real date, rather than silently falling back to a date
+    derived from the lot code — a missing/invalid value here likely
+    means the header page wasn't filled out correctly, which is worth
+    surfacing rather than masking with a guessed value."""
+    from datetime import datetime, date as date_type
+
+    try:
+        header_sheet = workbook.Sheets(config.GEM_FILL_LOGS_HEADER_SHEET_NAME)
+    except Exception as e:
+        raise ValueError(
+            f"Could not find sheet {config.GEM_FILL_LOGS_HEADER_SHEET_NAME!r} "
+            f"in the source workbook: {e}"
+        )
+
+    raw_value = header_sheet.Range(config.FILL_DATE_CELL).Value
+
+    if raw_value is None or raw_value == "":
+        raise ValueError(
+            f"Fill date cell {config.FILL_DATE_CELL!r} on "
+            f"{config.GEM_FILL_LOGS_HEADER_SHEET_NAME!r} is blank — "
+            f"the header page likely wasn't filled out correctly for "
+            f"this lot. Not defaulting to a lot-code-derived date, "
+            f"since that could mask a real data problem."
+        )
+
+    if isinstance(raw_value, datetime):
+        return raw_value
+    if isinstance(raw_value, date_type):
+        return datetime(raw_value.year, raw_value.month, raw_value.day)
+
+    raise ValueError(
+        f"Fill date cell {config.FILL_DATE_CELL!r} on "
+        f"{config.GEM_FILL_LOGS_HEADER_SHEET_NAME!r} contains "
+        f"{raw_value!r}, which isn't a recognizable date."
+    )
+
+
 def read_seal_strength_values(sheet):
     """Read the real (non-placeholder) Seal Strength values from the
     Tensile Tester Use Log table, stopping at the first true blank row

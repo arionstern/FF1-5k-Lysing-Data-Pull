@@ -73,6 +73,11 @@ SAP_TEMP_FOLDER_TEMPLATE = r"%LOCALAPPDATA%\SAP\SAP GUI\tmp"
 
 SOURCE_SHEET_NAME = "SOPGEM-45-2"
 
+# Fill date comes from a DIFFERENT sheet than the tensile data page
+# above -- a dedicated header page within the same source workbook.
+GEM_FILL_LOGS_HEADER_SHEET_NAME = "GEM Fill Logs Header Page"
+FILL_DATE_CELL = "F16"
+
 # Which fill lines are valid for this pull (step 4.5.1)
 VALID_FILL_LINES = ["FF1", "FF2"]
 
