@@ -70,6 +70,22 @@ def get_worksheet(project, sheet_name):
     raise ValueError(f"Worksheet {sheet_name!r} not found in project.")
 
 
+def lot_exists_in_control_chart(control_chart_sheet, lot_number):
+    """Check whether a lot already has a row in the Control Chart
+    worksheet (column 1, Lot No.) — used to prevent duplicate Minitab
+    writes if a lot gets reprocessed. Mirrors excel_utils's
+    lot_exists_in_wo_data, but Minitab never had an equivalent check
+    before this — a real gap that could otherwise create silent
+    duplicate rows/columns."""
+    lot_column = control_chart_sheet.Columns.Item(1)
+    try:
+        existing_lots = list(lot_column.GetData())
+    except Exception:
+        return False  # empty column, nothing to compare against
+    return any(str(lot).strip() == lot_number for lot in existing_lots
+               if lot is not None)
+
+
 # ---------------------------------------------------------------------------
 # Boxplot worksheet
 # ---------------------------------------------------------------------------

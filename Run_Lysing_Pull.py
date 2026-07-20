@@ -90,11 +90,18 @@ def process_one_lot(lot_number, wo_number, fill_date,
 
     # --- Minitab: write to destination ---
     print("Writing to Minitab destination...")
-    minitab_result = minitab_utils.write_new_lot_to_minitab(
-        mtb_project, lot_number, wo_number, fill_date, seal_values
+    control_chart_sheet_mtb = minitab_utils.get_worksheet(
+        mtb_project, config.DEST_CONTROL_CHART_SHEET
     )
-    print(f"  Wrote Boxplot column {minitab_result['boxplot_column_name']!r}, "
-          f"Control Chart row {minitab_result['control_chart_row']}")
+    if minitab_utils.lot_exists_in_control_chart(control_chart_sheet_mtb, lot_number):
+        print(f"  Lot {lot_number} already in Minitab Control Chart — "
+              f"skipping Minitab write entirely to avoid a duplicate.")
+    else:
+        minitab_result = minitab_utils.write_new_lot_to_minitab(
+            mtb_project, lot_number, wo_number, fill_date, seal_values
+        )
+        print(f"  Wrote Boxplot column {minitab_result['boxplot_column_name']!r}, "
+              f"Control Chart row {minitab_result['control_chart_row']}")
 
     print(f"Lot {lot_number} complete.")
 
@@ -214,25 +221,34 @@ if __name__ == "__main__":
 # - Minitab Boxplot chart regeneration, including title AND axis
 #   labels (AxLabel session subcommand, nested inside Boxplot's own
 #   subcommand block -- NOT a standalone command)
-# - Xbar chart needs NO code at all -- confirmed it auto-updates
-#   natively as new Control Chart rows are added
+# - Xbar chart: originally thought to need NO code (auto-updates
+#   natively). Reversed after testing confirmed any COM-driven write
+#   resets its custom axis labels back to defaults, even though a
+#   manual keystroke edit doesn't. Now regenerated fresh each run via
+#   regenerate_xbar_chart(), same pattern as Boxplot, using the real
+#   XBARCHART command (RSUB/STAMP/EXCLUDE/AxLabel/Title). One
+#   unverified piece: "TEST 0" to suppress special-cause markers --
+#   not found in documentation, just happened to work.
+# - The "genuinely new lot" append branch (append_wo_data_row via
+#   write_new_lot_to_all_sheets) HAS been tested successfully multiple
+#   times now (e.g. 260630C, after manually removing it from the test
+#   sheet to simulate a new lot) — including through Excel, Minitab,
+#   chart regeneration, and email draft creation end-to-end.
 #
 # NOT DONE / NOT YET FULLY VALIDATED:
-# - The "genuinely new lot" branch of process_one_lot() (append_wo_data_row
-#   via write_new_lot_to_all_sheets) has NOT been tested end-to-end
-#   against real live SAP data as of this writing -- every lot found
-#   ready so far already existed in WO Data. Test this specifically
-#   before trusting it unattended.
+# - Minitab duplicate-prevention (lot_exists_in_control_chart) added
+#   and wired in -- mirrors the existing WO Data check. Untested as
+#   of this writing (no real duplicate scenario hit yet in testing).
 # - Reply-all email (step 7) -- wired in and tested via
 #   tests/outlook/test_email_pipeline_staged.py. Draft is displayed
 #   for manual review/send, never auto-sent. Date-range phrasing in
 #   the summary line is only confirmed against a small number of real
 #   examples -- worth double-checking wording on edge cases (e.g. 2
 #   lots, not just 1 or 3).
-# - Old boxplot chart commands accumulate in Minitab's history each
-#   time regenerate_boxplot_chart() runs -- nothing deletes the
-#   previous one. Worth cleaning up / auto-deleting old chart commands
-#   before this runs unattended long-term.
+# - Old boxplot AND xbar chart commands both accumulate in Minitab's
+#   history each time this runs -- nothing deletes the previous ones.
+#   Worth cleaning up / auto-deleting old chart commands before this
+#   runs unattended long-term.
 # - This script currently does NOT save either destination file -- that
 #   stays a manual step for now, given the QA-sensitive nature of this
 #   data.
