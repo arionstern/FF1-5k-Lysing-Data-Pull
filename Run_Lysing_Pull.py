@@ -38,9 +38,12 @@ def lot_exists_in_wo_data(wo_data_sheet, lot_number):
 
 def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
     """Runs one lot through the full pipeline: SAP -> Excel -> Minitab.
-    Returns the real fill_date, read from the source workbook's
-    dedicated header page — no longer accepted as a parameter, since
-    it can only be determined after the source workbook is open."""
+    Returns (fill_date, overnight_flag) — fill_date is read from the
+    source workbook's dedicated header page (no longer accepted as a
+    parameter, since it can only be determined after the source
+    workbook is open). overnight_flag is None unless this lot shows
+    EITHER overnight-fill evidence OR a lot-code/header-page date
+    disagreement (see excel_utils.detect_overnight_fill)."""
     print(f"\n{'=' * 60}")
     print(f"Processing lot {lot_number} (WO {wo_number})")
     print(f"{'=' * 60}")
@@ -65,10 +68,35 @@ def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
         # excel_utils.read_fill_date's docstring for why).
         fill_date = excel_utils.read_fill_date(source_workbook)
 
+        # Overnight-fill flag: if this lot's readings genuinely span
+        # more than one calendar date (direct evidence from the row-
+        # level Date column, not inferred from time-of-day) AND the
+        # lot-code-implied date disagrees with the real header-page
+        # fill_date, that's worth a human double-check -- the header
+        # page might have been filled out on the "wrong side" of
+        # midnight for this lot. Checked here, before the workbook
+        # closes, since it needs source_sheet.
+        overnight_detected = excel_utils.detect_overnight_fill(source_sheet)
+
         print(f"  Fill line: {fill_line}, {len(seal_values)} readings, "
               f"fill date: {fill_date}")
     finally:
         source_workbook.Close(SaveChanges=False)
+
+    # Lot-code-vs-header-page disagreement, OR overnight evidence
+    # checked above -- either one alone is worth a human double-check.
+    # Decision logic lives in excel_utils.build_overnight_flag() (pure,
+    # no COM objects) so it's independently unit-testable.
+    # sap_utils.parse_lot_date() still exists from before the
+    # fill_date restructuring -- no longer used as the real fill_date
+    # source, but it's exactly what we want here as the "what the lot
+    # code implies" side of the comparison.
+    lot_code_date = sap_utils.parse_lot_date(lot_number)
+    overnight_flag = excel_utils.build_overnight_flag(
+        lot_number, overnight_detected, fill_date, lot_code_date
+    )
+    if overnight_flag is not None:
+        print(f"  FLAG: {overnight_flag}")
 
     # --- Excel: write to destination ---
     print("Writing to Excel destination...")
@@ -114,7 +142,7 @@ def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
               f"Control Chart row {minitab_result['control_chart_row']}")
 
     print(f"Lot {lot_number} complete.")
-    return fill_date
+    return fill_date, overnight_flag
 
 
 def main():
@@ -159,12 +187,16 @@ def main():
 
     results = []
     successful_fill_dates = []
+    overnight_flags = []
     for lot_number, wo_number in lots_to_process:
         try:
-            fill_date = process_one_lot(lot_number, wo_number,
-                                         dest_workbook, mtb_project)
+            fill_date, overnight_flag = process_one_lot(
+                lot_number, wo_number, dest_workbook, mtb_project
+            )
             results.append((lot_number, "OK"))
             successful_fill_dates.append(fill_date)
+            if overnight_flag is not None:
+                overnight_flags.append(overnight_flag)
         except Exception as e:
             print(f"FAILED on lot {lot_number}: {e}")
             results.append((lot_number, f"FAILED: {e}"))
@@ -174,6 +206,13 @@ def main():
     print(f"{'=' * 60}")
     for lot_number, status in results:
         print(f"  {lot_number}: {status}")
+
+    if overnight_flags:
+        print(f"\n{'!' * 60}")
+        print("OVERNIGHT FILL / DATE DISAGREEMENT FLAGS -- review these")
+        print(f"{'!' * 60}")
+        for flag in overnight_flags:
+            print(f"  {flag}")
 
     print("\nRegenerating Boxplot chart in Minitab...")
     import time

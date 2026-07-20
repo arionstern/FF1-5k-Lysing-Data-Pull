@@ -116,6 +116,104 @@ def read_fill_date(workbook):
     )
 
 
+def read_table_dates(sheet):
+    """Read the row-level Date column (config.SOURCE_TABLE_COLUMNS
+    ['date']) from the Tensile Tester Use Log table, for the same real
+    (non-N/A) rows that read_seal_strength_values() reads from the
+    Seal Strength column -- used to detect whether a lot's readings
+    span more than one calendar date (i.e. the fill ran past
+    midnight), as direct evidence rather than inferring it from
+    time-of-day values.
+
+    Mirrors read_seal_strength_values()'s stopping logic exactly (same
+    start row, same "stop at first true blank in the Seal Strength
+    column" rule) so both functions agree on which rows count as real
+    data.
+
+    Returns a list of datetime.date objects, one per real data row, in
+    row order. A date cell that isn't a real date is silently skipped
+    (shouldn't normally happen on a real data row) rather than raising
+    -- this check is a secondary flag, not something that should ever
+    block the main pipeline.
+    """
+    from datetime import datetime, date as date_type
+
+    seal_col = config.SOURCE_TABLE_COLUMNS["seal_strength"]
+    date_col = config.SOURCE_TABLE_COLUMNS["date"]
+    start_row = config.SOURCE_TABLE_DATA_START_ROW
+
+    dates = []
+    row = start_row
+    max_rows_to_check = 500  # same safety cap as read_seal_strength_values
+    while row < start_row + max_rows_to_check:
+        seal_value = sheet.Range(f"{seal_col}{row}").Value
+        if seal_value is None or seal_value == "":
+            break  # true end of the template, same stop point as
+                   # read_seal_strength_values
+        if isinstance(seal_value, (int, float)):
+            date_value = sheet.Range(f"{date_col}{row}").Value
+            # NOTE: check datetime before date_type -- pywintypes.datetime
+            # (what Excel COM actually returns) IS a subclass of date,
+            # so checking date_type first would silently take the
+            # datetime branch's data through the wrong path. Same
+            # gotcha as read_fill_date().
+            if isinstance(date_value, datetime):
+                dates.append(date_value.date())
+            elif isinstance(date_value, date_type):
+                dates.append(date_value)
+        row += 1
+
+    return dates
+
+
+def detect_overnight_fill(sheet):
+    """Returns True if the row-level Date column shows readings
+    spanning more than one calendar date -- direct evidence the fill
+    ran past midnight, rather than inferring this from time-of-day
+    values. Used in Run_Lysing_Pull.py alongside a lot-code-vs-
+    header-page fill date disagreement check; either signal alone is
+    enough to flag a lot for a human double-check (OR logic, not AND)."""
+    dates = read_table_dates(sheet)
+    return len(set(dates)) > 1
+
+
+def build_overnight_flag(lot_number, overnight_detected, fill_date, lot_code_date):
+    """Pure decision logic for the overnight-fill / lot-code
+    disagreement flag. Takes already-computed inputs (no COM objects)
+    so this can be unit-tested without SAP/Excel/Minitab running.
+    Separated out from Run_Lysing_Pull.process_one_lot() specifically
+    for that reason.
+
+    OR logic: either overnight_detected or a lot-code/header-page date
+    disagreement is enough to flag -- doesn't require both.
+
+    lot_code_date may be None (e.g. sap_utils.parse_lot_date()
+    couldn't parse the lot name) -- in that case only overnight_detected
+    is considered, since there's nothing to compare fill_date against.
+
+    Returns the flag message string, or None if nothing to flag.
+    """
+    date_disagreement = (
+        lot_code_date is not None and lot_code_date.date() != fill_date.date()
+    )
+
+    if not overnight_detected and not date_disagreement:
+        return None
+
+    reasons = []
+    if overnight_detected:
+        reasons.append("readings span more than one calendar date "
+                        "(overnight fill)")
+    if date_disagreement:
+        reasons.append(
+            f"lot-code-implied date ({lot_code_date.date()}) disagrees "
+            f"with the header-page fill date ({fill_date.date()})"
+        )
+
+    return (f"Lot {lot_number}: " + " AND ".join(reasons) +
+            " -- worth a human double-check.")
+
+
 def read_seal_strength_values(sheet):
     """Read the real (non-placeholder) Seal Strength values from the
     Tensile Tester Use Log table, stopping at the first true blank row
