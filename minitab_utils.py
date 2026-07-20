@@ -327,38 +327,106 @@ def regenerate_boxplot_chart(project, boxplot_sheet=None):
     return project.Commands.Item(commands_after)
 
 
-def export_chart(command, output_path):
+def export_chart(command, output_path, width=900, height=450):
     """Export a chart command's graph to an image file. Works for any
     command that has a graph output, e.g. the return value of
-    regenerate_boxplot_chart()."""
+    regenerate_boxplot_chart(). Width/Height confirmed as valid named
+    parameters on SaveAs — positional args failed ("Invalid format
+    specified"), named args worked."""
     graph = command.Outputs.Item(1).Graph
-    graph.SaveAs(output_path)
+    graph.SaveAs(output_path, Width=width, Height=height)
     return output_path
 
 
-def find_latest_xbar_command(project):
-    """Xbar auto-updates (confirmed — no code needed to regenerate it),
-    but we still need to find and export its current state. Searches
-    Commands by name for the most recent 'Xbar Chart' entry, since
-    its exact name changes with bag count (e.g. 'Xbar Chart of
-    Bag 1, ..., Bag 38')."""
-    latest_xbar = None
-    for i in range(1, project.Commands.Count + 1):
-        command = project.Commands.Item(i)
-        if command.Name.startswith("Xbar Chart"):
-            latest_xbar = command  # keep overwriting — last match wins
-    if latest_xbar is None:
-        raise ValueError("No Xbar Chart command found in the project.")
-    return latest_xbar
+def regenerate_xbar_chart(project, control_chart_sheet=None):
+    """Regenerate the Xbar chart via the real XBARCHART command,
+    rather than relying on the original auto-updating chart.
+
+    WHY recreate instead of relying on auto-update: confirmed via
+    direct testing that any COM-driven write (SetData) to the Control
+    Chart sheet causes Minitab's auto-update to silently reset custom
+    axis labels back to defaults ("Sample Mean") — a manual keystroke
+    edit does NOT cause this, only scripted writes do. Since this
+    project always writes via COM, the label reset is unavoidable
+    unless we recreate the chart fresh with the label set correctly
+    every time — same treatment as Boxplot.
+
+    Confirmed working syntax (found via Minitab's own documentation,
+    Help XBARCHART, not guessed):
+      - RSUB: subgroups are in ROWS (one lot per row), not columns
+      - STAMP: use the Fill Date column for real dates on the X-axis
+      - EXCLUDE; ROWS 1:N;: exclude rows before config.CHART_DATA_START_YEAR,
+        computed dynamically (not hardcoded) — matches the real
+        chart's "Results exclude specified rows" behavior
+      - TEST 0: UNVERIFIED GUESS that happened to work — disables the
+        special-cause test markers (red flags) the real chart doesn't
+        show. Not found in documentation; if this ever silently stops
+        working, that's why.
+      - AxLabel 1/2, Title: same technique as Boxplot
+
+    One known cosmetic difference from the original: control limit
+    values display with fewer decimal places (e.g. "26.95" vs
+    "26.9518") — a display/rounding setting, not a data difference.
+    Not automated.
+    """
+    control_chart_sheet = control_chart_sheet or get_worksheet(
+        project, config.DEST_CONTROL_CHART_SHEET
+    )
+
+    fill_date_column = control_chart_sheet.Columns.Item(3)  # C3 = Fill Date
+    dates = list(fill_date_column.GetData())
+    rows_before_cutoff = 0
+    for d in dates:
+        if d is None:
+            continue
+        try:
+            if d.year < config.CHART_DATA_START_YEAR:
+                rows_before_cutoff += 1
+            else:
+                break  # dates are chronological, stop at first in-range row
+        except AttributeError:
+            continue
+
+    exclude_clause = ""
+    if rows_before_cutoff > 0:
+        exclude_clause = f"  EXCLUDE;\n    ROWS 1:{rows_before_cutoff};\n"
+
+    chart_config = config.MINITAB_XBAR_CHART
+    command_text = (
+        "XBARCHART;\n"
+        "  RSUB 'Bag 1'-'Bag 38';\n"
+        "  STAMP 'Fill Date';\n"
+        f"{exclude_clause}"
+        "  TEST 0;\n"
+        f"  AxLabel 1 \"{chart_config['x_axis']}\";\n"
+        f"  AxLabel 2 \"{chart_config['y_axis']}\";\n"
+        f"  Title \"{chart_config['title']}\"."
+    )
+
+    commands_before = project.Commands.Count
+    project.ExecuteCommand(command_text)
+    commands_after = project.Commands.Count
+
+    if commands_after <= commands_before:
+        raise RuntimeError(
+            "XBARCHART command did not create a new chart — check "
+            "Minitab's Session window for the real error (ExecuteCommand "
+            "does not raise on Minitab-side syntax errors)."
+        )
+
+    return project.Commands.Item(commands_after)
 
 
-def export_boxplot_and_xbar(project, boxplot_command, output_folder):
+def export_boxplot_and_xbar(project, boxplot_command, output_folder,
+                             control_chart_sheet=None):
     """Export both charts as PNGs, matching the real email format
-    (Xbar first, then Boxplot below it)."""
+    (Xbar first, then Boxplot below it). Regenerates Xbar fresh each
+    time (see regenerate_xbar_chart's docstring for why) rather than
+    finding/exporting the old auto-updating chart."""
     import os
     os.makedirs(output_folder, exist_ok=True)
 
-    xbar_command = find_latest_xbar_command(project)
+    xbar_command = regenerate_xbar_chart(project, control_chart_sheet)
     xbar_path = os.path.join(output_folder, "xbar_chart.png")
     export_chart(xbar_command, xbar_path)
 

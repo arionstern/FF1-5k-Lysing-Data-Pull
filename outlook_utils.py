@@ -100,8 +100,8 @@ def build_email_body(summary_line, xbar_content_id, boxplot_content_id):
     return f"""
     <div style="font-family: Calibri; font-size: 11pt;">
         <p>{summary_line}</p>
-        <p><img src="cid:{xbar_content_id}" style="width:700px;"></p>
-        <p><img src="cid:{boxplot_content_id}" style="width:700px;"></p>
+        <p><img src="cid:{xbar_content_id}" style="width:600px;"></p>
+        <p><img src="cid:{boxplot_content_id}" style="width:600px;"></p>
     </div>
     """
 
