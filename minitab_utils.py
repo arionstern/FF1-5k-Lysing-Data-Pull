@@ -311,11 +311,11 @@ def regenerate_boxplot_chart(project, boxplot_sheet=None):
     # with "No data in column CN" even though our real data is fine.
     # column_names already excludes unnamed/empty columns (they fail
     # the date-parsing check in get_boxplot_column_names_from_year).
-    # NOTE: this specific combination (explicit column LIST + Overlay)
-    # hasn't been directly tested yet — we've confirmed range+Overlay
-    # works, and separately confirmed a plain list WITHOUT Overlay
-    # produces separate tiled charts (bad). Worth verifying this
-    # combination produces one combined chart, not tiled ones.
+    # CONFIRMED: explicit column LIST + Overlay produces one combined
+    # chart, not tiled ones — verified against real generated Boxplot
+    # charts in production use. (Range+Overlay was confirmed earlier;
+    # list-without-Overlay was separately confirmed to produce the bad
+    # tiled version, as expected.)
     column_list = " ".join(f"'{name}'" for name in column_names)
     chart_config = config.MINITAB_BOXPLOT_CHART
 
@@ -374,10 +374,12 @@ def regenerate_xbar_chart(project, control_chart_sheet=None):
       - EXCLUDE; ROWS 1:N;: exclude rows before config.CHART_DATA_START_YEAR,
         computed dynamically (not hardcoded) — matches the real
         chart's "Results exclude specified rows" behavior
-      - TEST 0: UNVERIFIED GUESS that happened to work — disables the
+      - TEST 0: CONFIRMED via real Minitab documentation (TEST
+        subcommand help text, obtained directly, not guessed): "Test 0
+        will perform no tests and override any set control chart
+        options." This is exactly what's wanted here — disables the
         special-cause test markers (red flags) the real chart doesn't
-        show. Not found in documentation; if this ever silently stops
-        working, that's why.
+        show. No longer an unverified guess.
       - AxLabel 1/2, Title: same technique as Boxplot
 
     One known cosmetic difference from the original: control limit
