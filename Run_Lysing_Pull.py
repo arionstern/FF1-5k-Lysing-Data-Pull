@@ -38,12 +38,16 @@ def lot_exists_in_wo_data(wo_data_sheet, lot_number):
 
 def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
     """Runs one lot through the full pipeline: SAP -> Excel -> Minitab.
-    Returns (fill_date, overnight_flag) — fill_date is read from the
-    source workbook's dedicated header page (no longer accepted as a
-    parameter, since it can only be determined after the source
-    workbook is open). overnight_flag is None unless this lot shows
-    EITHER overnight-fill evidence OR a lot-code/header-page date
-    disagreement (see excel_utils.detect_overnight_fill)."""
+    Returns (fill_date, overnight_flag, format_flag):
+      - fill_date: read from the source workbook's dedicated header
+        page (no longer accepted as a parameter, since it can only be
+        determined after the source workbook is open).
+      - overnight_flag: None unless this lot shows EITHER overnight-
+        fill evidence OR a lot-code/header-page date disagreement.
+      - format_flag: None unless the lot name itself doesn't match the
+        expected YYMMDD+letter(s) format. Reported separately from
+        overnight_flag since almost all real lots follow this pattern.
+    """
     print(f"\n{'=' * 60}")
     print(f"Processing lot {lot_number} (WO {wo_number})")
     print(f"{'=' * 60}")
@@ -92,6 +96,16 @@ def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
     # source, but it's exactly what we want here as the "what the lot
     # code implies" side of the comparison.
     lot_code_date = sap_utils.parse_lot_date(lot_number)
+
+    # Separate, immediate flag: the lot name itself doesn't match the
+    # expected format. Reported on its own, distinct from the
+    # overnight/disagreement flag below, since almost every real lot
+    # follows this pattern -- one that doesn't is worth calling out by
+    # itself, not silently folded into "disagreement check skipped."
+    format_flag = excel_utils.build_lot_format_flag(lot_number, lot_code_date)
+    if format_flag is not None:
+        print(f"  FLAG: {format_flag}")
+
     overnight_flag = excel_utils.build_overnight_flag(
         lot_number, overnight_detected, fill_date, lot_code_date
     )
@@ -142,7 +156,7 @@ def process_one_lot(lot_number, wo_number, dest_workbook, mtb_project):
               f"Control Chart row {minitab_result['control_chart_row']}")
 
     print(f"Lot {lot_number} complete.")
-    return fill_date, overnight_flag
+    return fill_date, overnight_flag, format_flag
 
 
 def main():
@@ -188,15 +202,18 @@ def main():
     results = []
     successful_fill_dates = []
     overnight_flags = []
+    format_flags = []
     for lot_number, wo_number in lots_to_process:
         try:
-            fill_date, overnight_flag = process_one_lot(
+            fill_date, overnight_flag, format_flag = process_one_lot(
                 lot_number, wo_number, dest_workbook, mtb_project
             )
             results.append((lot_number, "OK"))
             successful_fill_dates.append(fill_date)
             if overnight_flag is not None:
                 overnight_flags.append(overnight_flag)
+            if format_flag is not None:
+                format_flags.append(format_flag)
         except Exception as e:
             print(f"FAILED on lot {lot_number}: {e}")
             results.append((lot_number, f"FAILED: {e}"))
@@ -206,6 +223,13 @@ def main():
     print(f"{'=' * 60}")
     for lot_number, status in results:
         print(f"  {lot_number}: {status}")
+
+    if format_flags:
+        print(f"\n{'!' * 60}")
+        print("LOT NAME FORMAT FLAGS -- review these")
+        print(f"{'!' * 60}")
+        for flag in format_flags:
+            print(f"  {flag}")
 
     if overnight_flags:
         print(f"\n{'!' * 60}")

@@ -131,5 +131,63 @@ def main():
     print("\nAll overnight-flag logic cases passed.")
 
 
+def check_format_flag():
+    # Valid format -> no flag
+    result = excel_utils.build_lot_format_flag(LOT, lot_code_date=SAME_DATE)
+    assert result is None, f"expected no format flag, got: {result!r}"
+    print("PASS [valid format]: no flag, as expected")
+
+    # Unparseable lot name -> flag. Deliberately uses a clearly-fake
+    # placeholder name here (NOT '260630C', which IS valid) to avoid
+    # implying the real lot is invalid -- this test only checks that
+    # build_lot_format_flag() reacts correctly to a forced None,
+    # it isn't asserting anything about a real lot number's validity.
+    fake_bad_lot = "BADNAME"
+    result = excel_utils.build_lot_format_flag(fake_bad_lot, lot_code_date=None)
+    assert result is not None, "expected a format flag, got None"
+    assert "does not match" in result, f"unexpected message: {result!r}"
+    print(f"PASS [invalid format]: {result}")
+
+    print("\nAll lot-format-flag logic cases passed.")
+
+
+def check_real_lot_name_parsing():
+    """Unlike the cases above (which hand-feed a stand-in lot_code_date
+    directly to the pure build_* functions), this calls the REAL
+    sap_utils.parse_lot_date() against real-shaped lot names -- so it
+    actually proves the parser handles multi-letter suffixes like
+    '260630AA' correctly, not just that build_lot_format_flag() reacts
+    correctly to whatever value it's handed."""
+    import sap_utils
+
+    # Standard single-letter format
+    result = sap_utils.parse_lot_date("260630C")
+    assert result == datetime(2026, 6, 30), f"got {result!r}"
+    print("PASS [real parse '260630C']: ", result)
+
+    # Multi-letter suffix (second/third same-day lot) -- should parse
+    # identically to the single-letter case, same date
+    result = sap_utils.parse_lot_date("260630AA")
+    assert result == datetime(2026, 6, 30), f"got {result!r}"
+    print("PASS [real parse '260630AA']: ", result)
+
+    result = sap_utils.parse_lot_date("260630AB")
+    assert result == datetime(2026, 6, 30), f"got {result!r}"
+    print("PASS [real parse '260630AB']: ", result)
+
+    # Genuinely malformed names -> None, and that None should trigger
+    # build_lot_format_flag()
+    for bad_name in ["260630", "SAMPLE1", "2A0630B", "abcdefg"]:
+        result = sap_utils.parse_lot_date(bad_name)
+        assert result is None, f"[{bad_name}] expected None, got {result!r}"
+        flag = excel_utils.build_lot_format_flag(bad_name, result)
+        assert flag is not None, f"[{bad_name}] expected a format flag"
+        print(f"PASS [real parse '{bad_name}' -> None -> flagged]: {flag}")
+
+    print("\nAll real lot-name parsing cases passed.")
+
+
 if __name__ == "__main__":
     main()
+    check_format_flag()
+    check_real_lot_name_parsing()

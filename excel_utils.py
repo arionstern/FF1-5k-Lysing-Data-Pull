@@ -177,6 +177,31 @@ def detect_overnight_fill(sheet):
     return len(set(dates)) > 1
 
 
+def build_lot_format_flag(lot_number, lot_code_date):
+    """Separate, immediate flag for a lot number that doesn't match
+    the expected YYMMDD+letter(s) format (e.g. '260630C', or
+    '260630AA' for a second same-day lot -- both parse fine).
+
+    This is DIFFERENT from build_overnight_flag(): almost every real
+    lot follows this naming pattern, so a lot that doesn't is unusual
+    enough to be worth flagging on its own, immediately -- not just
+    silently treated as "disagreement check skipped" the way
+    build_overnight_flag() otherwise handles a None lot_code_date.
+
+    lot_code_date is the return value of sap_utils.parse_lot_date() --
+    None means the lot name didn't match the expected format.
+
+    Returns the flag message string, or None if the format was fine.
+    """
+    if lot_code_date is not None:
+        return None
+    return (
+        f"Lot {lot_number}: name does not match the expected "
+        f"YYMMDD+letter(s) format -- could not verify against the "
+        f"header-page fill date."
+    )
+
+
 def build_overnight_flag(lot_number, overnight_detected, fill_date, lot_code_date):
     """Pure decision logic for the overnight-fill / lot-code
     disagreement flag. Takes already-computed inputs (no COM objects)
