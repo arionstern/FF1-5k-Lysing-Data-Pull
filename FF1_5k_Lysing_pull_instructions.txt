@@ -1,0 +1,93 @@
+FF1 5k Lysing Tensile Data Pull — Manual Process (corrected)
+ 
+1.) Open the FF1 5k Lysing Tensile Data Excel workbook
+2.) Open SAP and log on
+3.) Enter transaction ZPP_WI
+	3.1) Expand options, enter Material: 000470088, check "no restriction"
+	3.2) Click Enter — this lands directly on the GR Quantity results table, no further navigation needed
+	3.3) Scroll to find lots newer than what's already logged in the spreadsheet
+		Note: this table is NOT fully chronological (a recent block, then older
+		unrelated batches, then an even older block) — don't assume "newest is
+		always at the very bottom" without checking
+		3.3.1) A lot is only ready to pull once GR Quantity != 0
+ 
+4.) For each new, ready lot: double-click it, hit Enter
+	4.1) Copy Lot # and WO # into the spreadsheet, columns E and F
+	4.2) Close the "SubDocument selection - 2 Entries" popup if it appears
+	4.3) Go to the Doc List tab and open the document mentioning "GEM log
+	     fill lot" / "In-Process GEM Log" — this is the reliable path
+		4.3.1) Only use Routing → instruction 0030/000006 "In-Process GEM
+		       Logs (0030 - 0060)" as a fallback if Doc List doesn't show it;
+		       Routing's grid is finicky and can behave inconsistently,
+		       especially on older/completed lots
+		4.3.2) Before trusting the document, confirm it actually has real
+		       data — an autosave placeholder can sometimes open blank
+	4.4) On sheet SOPGEM-45-2:
+		4.4.1) Confirm Fill Line = FF1 or FF2
+		4.4.2) Copy the Sample Seal Strength Column (lbf) values (skip
+		       any row marked N/A — those are template placeholders, not
+		       real gaps)
+			4.4.2.1) Tensile Data (Boxplot): regular paste into the
+			         next open column
+			4.4.2.2) Tensile Data (Control Chart): transpose-paste
+			         into the next open row
+	4.5) Get the REAL fill date from the "GEM Fill Logs Header Page" sheet,
+	     cell F16 — do NOT read it off the lot code text. A lot code like
+	     "260630C" assumes the whole fill happened on 6/30, which is
+	     sometimes wrong if the fill actually ran past midnight
+		4.5.1) Double-check this specific lot if either of these is
+		       true: its own seal-strength readings span more than one
+		       calendar date, OR the date implied by the lot code doesn't
+		       match F16. Either one means an overnight fill — confirm F16
+		       is the correct date before moving on
+	4.6) On the WO Data sheet, fill in:
+		- Fill Date (from step 4.5)
+		- Filler — this field is actually the Fill Line (FF1/FF2), not a
+		  person's name
+		- Part Number
+	4.7) Copy the Boxplot and Control Chart data into Minitab
+		4.7.1) Pad any column/row shorter than the longest one with *
+		       so all lengths match
+		4.7.2) If two lots fill on the same calendar day, the second
+		       lot's Minitab Boxplot column name gets a "_1" suffix
+ 
+5.) Xbar chart
+	5.1) This does NOT reliably auto-update — any time new data is written
+	     into its source columns, Minitab resets the custom axis labels
+	     back to defaults. Plan to recreate it manually each time, not
+	     just check whether it looks updated
+	5.2) Stat → Control Charts → Variables Charts for Subgroups → Xbar
+		5.2.1) Subgroup readings are in one row — select Bag 1 through
+		       however many bag columns actually have data (not always 38)
+		5.2.2) Title = "2026 FF1 5K Lysing (Variable Subgroup Size)"
+		       X-axis = "Fill Date"   Y-axis = "Seal Strength (lbf)"
+		5.2.3) Under Options → Tests, turn off the special-cause tests
+		       so points aren't flagged/marked in red
+ 
+6.) Boxplot chart — also needs to be recreated manually each time, same
+    reason as the Xbar (auto-update resets custom labels)
+	6.1) Graph → Boxplot → Multiple Y's, Simple → select all lot columns
+	     → check "Overlay" → OK
+	     (Overlay is required — without it you get several small separate
+	     boxplots instead of one combined chart)
+	6.2) Title = "2026 FF1 5K Lysing Boxplot", axes same as the Xbar
+ 
+7.) Reply-all in the Viral email chain with both updated charts attached
+	7.1) Summary line format (spell out the month name, don't use M/D):
+		- Single lot: "Control chart and boxplot updates with [Month
+		  Day] datapoint.  This update has 1 new datapoint."
+		- Multiple lots: "Control chart and boxplot updates with
+		  [Month Day] to [Month Day] datapoints.  This update has [N]
+		  new datapoints."
+		- If every lot in the batch falls on the same day, use a
+		  single date instead of a "[date] to [date]" range
+ 
+Notes:
+- If two lots fill on the same day, the second gets a "_1" suffix in
+  Minitab.
+- The real fill date always comes from the GEM Fill Logs Header Page
+  (F16) — never derive it from the lot code text.
+- Lot names should follow YYMMDD + letter(s) format (e.g. 260630C, or
+  260630AA for a second same-day lot). A lot name that doesn't follow
+  this pattern is unusual — double-check it by hand rather than assuming.
+- Don't save either destination file until everything's been reviewed.
