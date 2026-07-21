@@ -293,35 +293,72 @@ if __name__ == "__main__":
 #   duplicate-date "_1" suffix detection
 # - Minitab Boxplot chart regeneration, including title AND axis
 #   labels (AxLabel session subcommand, nested inside Boxplot's own
-#   subcommand block -- NOT a standalone command)
+#   subcommand block -- NOT a standalone command). The explicit
+#   column-LIST + Overlay combination (as opposed to a column range)
+#   is CONFIRMED to produce one combined chart, not tiled ones --
+#   verified against real generated charts in production use.
 # - Xbar chart: originally thought to need NO code (auto-updates
 #   natively). Reversed after testing confirmed any COM-driven write
 #   resets its custom axis labels back to defaults, even though a
 #   manual keystroke edit doesn't. Now regenerated fresh each run via
 #   regenerate_xbar_chart(), same pattern as Boxplot, using the real
-#   XBARCHART command (RSUB/STAMP/EXCLUDE/AxLabel/Title). One
-#   unverified piece: "TEST 0" to suppress special-cause markers --
-#   not found in documentation, just happened to work.
+#   XBARCHART command (RSUB/STAMP/EXCLUDE/AxLabel/Title). "TEST 0" is
+#   now CONFIRMED via real Minitab documentation (TEST subcommand help
+#   text): "Test 0 will perform no tests and override any set control
+#   chart options" -- exactly the intended behavior, no longer a guess.
 # - The "genuinely new lot" append branch (append_wo_data_row via
 #   write_new_lot_to_all_sheets) HAS been tested successfully multiple
 #   times now (e.g. 260630C, after manually removing it from the test
 #   sheet to simulate a new lot) — including through Excel, Minitab,
 #   chart regeneration, and email draft creation end-to-end.
-#
-# NOT DONE / NOT YET FULLY VALIDATED:
-# - Minitab duplicate-prevention (lot_exists_in_control_chart) added
-#   and wired in -- mirrors the existing WO Data check. Untested as
-#   of this writing (no real duplicate scenario hit yet in testing).
+# - Minitab duplicate-prevention (lot_exists_in_control_chart) --
+#   CONFIRMED via a real run: re-running against 260630C after it was
+#   already in the Minitab Control Chart correctly logged "already in
+#   Minitab Control Chart -- skipping" and did not write a duplicate.
+# - Fill date now read from the real "GEM Fill Logs Header Page" sheet
+#   (excel_utils.read_fill_date()) instead of derived from the lot
+#   code text -- tested via an isolated test
+#   (tests/integration/test_read_fill_date.py) against a real lot, and
+#   validated end-to-end via multiple full pipeline runs. Also fixed a
+#   real bug found in testing: Excel COM returns pywintypes.datetime
+#   (tz-aware), which IS a subclass of datetime.datetime -- read_fill_date()
+#   now always normalizes to a plain naive datetime rather than trusting
+#   isinstance() to mean "already the right type."
+# - Overnight-fill / lot-code-disagreement flag (new feature):
+#   excel_utils.detect_overnight_fill() + excel_utils.build_overnight_flag()
+#   + excel_utils.build_lot_format_flag(). Flags a lot if EITHER its
+#   readings span more than one calendar date OR the lot-code-implied
+#   date disagrees with the real header-page fill date (OR logic, not
+#   AND) -- either signal alone is worth a human double-check. Lot
+#   names that don't match the expected YYMMDD+letter(s) format get
+#   their own separate, immediate flag. Decision logic is pure
+#   (no COM) and fully unit-tested (tests/excel/test_overnight_flag_logic.py,
+#   8 cases covering both flag types plus real sap_utils.parse_lot_date()
+#   checks against multi-letter names like '260630AA'). CONFIRMED via a
+#   real run: 260630C correctly flagged for overnight fill, and manual
+#   inspection of its source sheet confirmed the readings genuinely
+#   span two calendar dates -- a true positive, not a fluke.
 # - Reply-all email (step 7) -- wired in and tested via
 #   tests/outlook/test_email_pipeline_staged.py. Draft is displayed
 #   for manual review/send, never auto-sent. Date-range phrasing in
-#   the summary line is only confirmed against a small number of real
-#   examples -- worth double-checking wording on edge cases (e.g. 2
-#   lots, not just 1 or 3).
+#   the summary line (format_update_summary()) is now CONFIRMED
+#   against two real examples (single-lot: "July 1 datapoint...";
+#   multi-lot: "April 22 to June 5 datapoints..."), including the
+#   fix to spell out month names consistently (not "7/1") and to
+#   collapse a same-day multi-lot batch to a single date instead of a
+#   "June 30 to June 30" self-range. Fully unit-tested
+#   (tests/outlook/test_format_update_summary.py, 5 cases).
+#
+# NOT DONE / NOT YET FULLY VALIDATED:
 # - Old boxplot AND xbar chart commands both accumulate in Minitab's
 #   history each time this runs -- nothing deletes the previous ones.
-#   Worth cleaning up / auto-deleting old chart commands before this
-#   runs unattended long-term.
+#   Deliberately deferred to manual cleanup for now; a candidate
+#   future fix would delete the previous run's Graph window (not the
+#   Commands history, which is low-cost to leave alone) right after
+#   each new chart's PNG export succeeds -- but this needs real
+#   investigation into what Minitab's COM API actually exposes for
+#   deleting/closing a Graph object before attempting it (same
+#   "don't guess COM syntax" discipline as everything else here).
 # - This script currently does NOT save either destination file -- that
 #   stays a manual step for now, given the QA-sensitive nature of this
 #   data.
@@ -329,3 +366,5 @@ if __name__ == "__main__":
 #   rather than scrolling there incrementally -- testing showed these
 #   can produce DIFFERENT results for reasons not fully understood.
 #   Worth re-validating if SAP's table size/behavior ever changes.
+# - config.KNOWN_LOTS is dead weight now that real auto-detection
+#   exists -- safe to delete whenever, just not urgent.

@@ -66,9 +66,25 @@ def attach_inline_image(draft, image_path, content_id):
 
 
 def format_update_summary(new_lot_dates, all_processed_ok=True):
-    """Builds the summary line matching the real format:
-    'Control chart and boxplot updates with [date range].
-    This update has [N] new datapoint(s).'
+    """Builds the summary line matching the real format, confirmed
+    against two real examples:
+      - Single lot:  'Control chart and boxplot updates with July 1
+        datapoint.  This update has 1 new datapoint.'
+      - Multi-lot:   'Control chart and boxplot updates with April 22
+        to June 5 datapoints.  This update has 10 new datapoints.'
+
+    Dates are spelled out with the full month name (not '4/22'), and
+    a real multi-lot range uses 'to' as the separator, not a dash.
+    Applied consistently regardless of lot count -- the numeric
+    '7/1'-style single-lot format assumed earlier turned out to be a
+    paraphrase, not a literal quote; this matches the real evidence.
+
+    Special case: if every lot in this batch fell on the SAME
+    calendar day (e.g. a lot and its '_1' same-day duplicate), showing
+    a range from that date to itself ('June 30 to June 30') reads
+    wrong -- so that case collapses to a single date, while still
+    correctly pluralizing "datapoints" and reporting the real count
+    (e.g. 'June 30 datapoints... 2 new datapoints').
 
     new_lot_dates: list of date/datetime objects for the lots just
     processed, used to build the date range text.
@@ -80,17 +96,18 @@ def format_update_summary(new_lot_dates, all_processed_ok=True):
     count = len(sorted_dates)
 
     def fmt(d):
-        return f"{d.month}/{d.day}"
+        return f"{d.strftime('%B')} {d.day}"
 
-    if count == 1:
+    same_day = sorted_dates[0].date() == sorted_dates[-1].date()
+
+    if count == 1 or same_day:
         date_text = fmt(sorted_dates[0])
     else:
-        date_text = f"{fmt(sorted_dates[0])} - {fmt(sorted_dates[-1])}"
+        date_text = f"{fmt(sorted_dates[0])} to {fmt(sorted_dates[-1])}"
 
     plural = "datapoint" if count == 1 else "datapoints"
     return (f"Control chart and boxplot updates with {date_text} "
-            f"datapoint{'s' if count > 1 else ''}.  This update has "
-            f"{count} new {plural}.")
+            f"{plural}.  This update has {count} new {plural}.")
 
 
 def build_email_body(summary_line, xbar_content_id, boxplot_content_id):
