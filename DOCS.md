@@ -1,6 +1,5 @@
 # FF1 5k Lysing Tensile Data Pull — Developer Documentation
 
-
 This is the deep-dive companion to [README.md](./README.md). It covers how the code is put together internally: glossary and data structure reference, process flow, a function-by-function walkthrough, general reusable guides to automating SAP GUI Scripting and Minitab via COM, the tests folder, known issues, and areas for improvement.
 
 ## 1. Purpose & Scope
