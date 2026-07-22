@@ -130,10 +130,19 @@ def find_document_candidates(session, wo_number):
             print(f"  Candidate 1: row {row} (derived number match)")
             break
 
-    keywords = [k.lower() for k in config.DOC_LIST_SEARCH_KEYWORDS]
+    keywords = [k.lower().replace("-", " ") for k in config.DOC_LIST_SEARCH_KEYWORDS]
     scored_rows = []
     for row in range(row_count):
-        description = (grid.GetCellValue(row, "DKTXT") or "").lower()
+        # CONFIRMED real bug: without normalizing hyphens to spaces,
+        # the keyword "in-process" never matches a real document
+        # description like "ATTACHED IN PROCESS GEM LOGS" (space, not
+        # hyphen) -- costing the correct document a point it should
+        # get, and tying its score with unrelated master documents
+        # (e.g. "FILLING OF GEM 5000 LYSING BAGS...") that happen to
+        # match "gem"+"fill" instead. Ties break by row number, which
+        # can rank the wrong documents ahead of the genuinely correct
+        # one. Normalizing both sides the same way fixes the match.
+        description = (grid.GetCellValue(row, "DKTXT") or "").lower().replace("-", " ")
         score = sum(1 for k in keywords if k in description)
         if score >= 2:
             scored_rows.append((score, row))
@@ -287,7 +296,25 @@ def get_gem_log_sheet_for_wo(wo_number):
 
         excel_app = win32com.client.Dispatch("Excel.Application")
         workbook = excel_app.Workbooks.Open(file_path, ReadOnly=True)
-        sheet = workbook.Sheets(config.SOURCE_SHEET_NAME)
+
+        try:
+            sheet = workbook.Sheets(config.SOURCE_SHEET_NAME)
+        except Exception as e:
+            # CONFIRMED real failure case: a candidate matched by
+            # keyword score alone (e.g. 'SPM00470088-01') can be a
+            # totally different document type -- a Setup Aid/Checklist
+            # workbook, not a GEM log at all -- which doesn't even have
+            # a sheet named SOURCE_SHEET_NAME. Without this try/except,
+            # that raises an uncaught COM exception here, which crashes
+            # the whole lot AND leaves this workbook open forever
+            # (nothing in scope to close it), leaking an Excel instance
+            # every time it happens. Reject and try the next candidate
+            # instead, same as the blank-template case below.
+            print(f"  REJECTED: candidate doesn't have sheet "
+                  f"{config.SOURCE_SHEET_NAME!r} ({e}) -- wrong "
+                  f"document type, trying next candidate.")
+            workbook.Close(SaveChanges=False)
+            continue
 
         if _document_has_real_content(sheet):
             print(f"  ACCEPTED: real content found.")
@@ -299,7 +326,8 @@ def get_gem_log_sheet_for_wo(wo_number):
 
     raise ValueError(
         f"No candidate document for WO {wo_number} had real content "
-        f"— all {len(candidates)} candidate(s) were blank templates."
+        f"— all {len(candidates)} candidate(s) were blank templates "
+        f"or the wrong document type."
     )
 
 
